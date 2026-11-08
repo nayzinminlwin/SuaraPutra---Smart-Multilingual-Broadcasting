@@ -1,6 +1,6 @@
 Save in: `docs/logs/dev/`
 
-File naming convention: `YYYY-MM-DD_<Phase>_<Module>_<ShortDescription>.md`
+File naming convention: `YYYY-MM-DD_phase-0X-<phase-slug>.md`
 
 # Development Log: [Phase Number / Name] — [Module or Feature]
 

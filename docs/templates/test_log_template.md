@@ -1,6 +1,6 @@
 Save in: `docs/logs/test/`
 
-File naming convention: `YYYY-MM-DD_<Phase>_<FeatureOrBug>_QA.md`
+File naming convention: `YYYY-MM-DD_phase-0X-<phase-slug>-test.md`
 
 # QA Report: [Phase Number / Name] — [Feature or Module]
 

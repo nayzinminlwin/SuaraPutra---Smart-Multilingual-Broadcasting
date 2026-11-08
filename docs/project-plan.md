@@ -34,17 +34,17 @@ Before concluding any phase, bug fix, or test cycle, the executing agent **must*
 1. **Development Log (`docs/templates/dev_log_template.md`):**
    * **Who:** `developer.agent.md`
    * **When:** Mandatory upon completing the implementation of every phase.
-   * **Output Path:** `docs/logs/dev/phase-0X-<phase-slug>.md`
+   * **Output Path:** `docs/logs/dev/YYYY-MM-DD_phase-0X-<phase-slug>.md`
    * **Required Content:** Phase objectives completed, exact files created/modified, architectural invariants respected, active debug & $\mu\text{s}$ telemetry checkpoints wired, and local verification output.
 2. **Test Log (`docs/templates/test_log_template.md`):**
    * **Who:** `tester.agent.md` (or the agent executing phase validation tests).
    * **When:** Mandatory after running the unit/integration verification suite for every phase.
-   * **Output Path:** `docs/logs/test/phase-0X-<phase-slug>-test.md`
+   * **Output Path:** `docs/logs/test/YYYY-MM-DD_phase-0X-<phase-slug>-test.md`
    * **Required Content:** Test suite executed, pass/fail breakdown, recorded microsecond ($\mu\text{s}$) checkpoint durations, edge-case coverage, and sign-off status.
 3. **Fix Log (`docs/templates/fix_log_template.md`):**
    * **Who:** `developer.agent.md`
    * **When:** Mandatory whenever **any** defect, runtime error, schema mismatch, or test failure is encountered and resolved during a phase.
-   * **Output Path:** `docs/logs/fixes/phase-0X-fix-<short-issue-slug>.md`
+   * **Output Path:** `docs/logs/fixes/YYYY-MM-DD_phase-0X-fix-<short-issue-slug>.md`
    * **Required Content:** Symptom/error trace, root cause analysis, exact files/lines modified to fix the issue, and proof of regression test passing.
 
 > **Hard Gate:** A phase is **not complete** until its documentation logs (`dev_log`, `test_log`, and any applicable `fix_log`) are written and verified against `docs/templates/`.
@@ -71,7 +71,7 @@ Every agent **must** read and strictly enforce `.github/skills/git-scope-and-com
      - Delivered: <bullet list of key modules implemented>
      - Telemetry: <checkpoints instrumented in this phase>
      - Verification: <test command and pass count>
-     - Docs: docs/logs/dev/phase-0X-..., docs/logs/test/phase-0X-...
+     - Docs: docs/logs/dev/YYYY-MM-DD_phase-0X-..., docs/logs/test/YYYY-MM-DD_phase-0X-...
      ~~~
    * Allowed `<type>` values: `chore` (Phase 0), `feat` (Phases 1–7), `fix` (bug fixes), `test` (QA additions), `docs` (documentation-only).
 
@@ -200,7 +200,7 @@ Initialize the Node.js + TypeScript repository, install all required production 
 - [ ] `src/observability/logger.ts` and `src/observability/telemetry.ts` implemented with $\mu\text{s}$ (`process.hrtime.bigint()`) checkpoint tracking and E2E journey calculation.
 - [ ] `scripts/setup-oracle-server.sh`, `deploy/suaraputra.service`, and `scripts/verify-environment.ts` created.
 - [ ] Unit tests in `tests/unit/phase0-init.test.ts` pass (`npm test`).
-- [ ] **Un-negotiable Docs:** `docs/logs/dev/phase-00-initialization.md` and `docs/logs/test/phase-00-initialization-test.md` created from `docs/templates/`.
+- [ ] **Un-negotiable Docs:** `docs/logs/dev/YYYY-MM-DD_phase-00-initialization.md` and `docs/logs/test/YYYY-MM-DD_phase-00-initialization-test.md` created from `docs/templates/`.
 - [ ] **Un-negotiable Git Commit:** Only Phase 0 files staged and committed following `.github/skills/git-scope-and-commits/SKILL.md`.
 
 #### 0.4 Developer Success Analysis & Gate Validation (Phase 0)
@@ -244,7 +244,7 @@ Implement the SQLite persistence layer using `better-sqlite3` in `WAL` mode, exe
   - Duplicate `(chat_jid, message_id)` insert is rejected/detected deterministically.
   - Duplicate `(announcement_id, target_group_jid)` or `idempotency_key` on `delivery_jobs` is rejected.
   - Atomic transaction rolls back all tables if any single insert fails.
-- [ ] **Un-negotiable Docs:** `docs/logs/dev/phase-01-database.md` and `docs/logs/test/phase-01-database-test.md` (plus `fix_log` if any test failed during development) created.
+- [ ] **Un-negotiable Docs:** `docs/logs/dev/YYYY-MM-DD_phase-01-database.md` and `docs/logs/test/YYYY-MM-DD_phase-01-database-test.md` (plus `fix_log` if any test failed during development) created.
 - [ ] **Un-negotiable Git Commit:** Only Phase 1 files staged and committed.
 
 #### 1.4 Developer Success Analysis & Gate Validation (Phase 1)
@@ -284,7 +284,7 @@ Implement the decoupled `IWhatsAppAdapter` interface, build the Baileys `WAMessa
   - Plain text, extended text with quote, image with caption, and image without caption normalize accurately.
   - `CP01_INGEST_NORMALIZE` prints duration in $\mu\text{s}$ and captures `t_wa_source_sent_ms`.
   - `MockWhatsAppAdapter` fault modes (`TRANSIENT_ERROR`, `AMBIGUOUS_TIMEOUT`, `PERMANENT_ERROR`) trigger expected typed errors.
-- [ ] **Un-negotiable Docs:** `docs/logs/dev/phase-02-whatsapp-mock.md` and `docs/logs/test/phase-02-whatsapp-mock-test.md` created.
+- [ ] **Un-negotiable Docs:** `docs/logs/dev/YYYY-MM-DD_phase-02-whatsapp-mock.md` and `docs/logs/test/YYYY-MM-DD_phase-02-whatsapp-mock-test.md` created.
 - [ ] **Un-negotiable Git Commit:** Only Phase 2 files staged and committed.
 
 #### 2.4 Developer Success Analysis & Gate Validation (Phase 2)
@@ -328,7 +328,7 @@ Implement the 5-Gate Ingestion Filter (`src/ingestion/message-ingestor.ts`), SHA
   - Messages from non-source groups, `fromMe = true` self-echoes, and duplicate `message_id`s are dropped at Gates 1, 2, and 4.
   - `IMAGE_ONLY` fixture (`05_image_only_infographic.json`) caches the PNG to `data/media/`, skips AI, and creates 4 `IMAGE_ONLY` delivery jobs in SQLite.
   - `06_quoted_reply_deadline_extension.json` and `07_multi_message_split_announcement.json` assemble quoted and window context accurately.
-- [ ] **Un-negotiable Docs:** `docs/logs/dev/phase-03-ingestion.md` and `docs/logs/test/phase-03-ingestion-test.md` created.
+- [ ] **Un-negotiable Docs:** `docs/logs/dev/YYYY-MM-DD_phase-03-ingestion.md` and `docs/logs/test/YYYY-MM-DD_phase-03-ingestion-test.md` created.
 - [ ] **Un-negotiable Git Commit:** Only Phase 3 files staged and committed.
 
 #### 3.4 Developer Success Analysis & Gate Validation (Phase 3)
@@ -377,7 +377,7 @@ Implement the unified `gemini-3.8-flash` AI pipeline using `@google/genai` (plus
   - Complete 4-language source message (`03_text_four_languages_complete.json`) uses `reused` strategy.
   - Conflicting dates (`09_conflicting_dates_announcement.json`) halts at Stage B with `held_conflict`.
   - Prompt injection attempt (`11_prompt_injection_attempt.json`) cannot alter routing or bypass schemas.
-- [ ] **Un-negotiable Docs:** `docs/logs/dev/phase-04-ai-pipeline.md` and `docs/logs/test/phase-04-ai-pipeline-test.md` created.
+- [ ] **Un-negotiable Docs:** `docs/logs/dev/YYYY-MM-DD_phase-04-ai-pipeline.md` and `docs/logs/test/YYYY-MM-DD_phase-04-ai-pipeline-test.md` created.
 - [ ] **Un-negotiable Git Commit:** Only Phase 4 files staged and committed.
 
 #### 4.4 Developer Success Analysis & Gate Validation (Phase 4)
@@ -413,7 +413,7 @@ Implement Stage D deterministic validation (`src/validation/translation-validato
   - Valid 4-language outputs pass in $< 1000\text{ }\mu\text{s}$.
   - A mutated URL (e.g., `https://example.invalid/reg` instead of `https://example.invalid/register`) or wrong date (`16` instead of `15`) is caught deterministically.
   - Failed validation triggers 1 retry and quarantines the announcement as `held_validation_failed` if still invalid.
-- [ ] **Un-negotiable Docs:** `docs/logs/dev/phase-05-validation.md` and `docs/logs/test/phase-05-validation-test.md` created.
+- [ ] **Un-negotiable Docs:** `docs/logs/dev/YYYY-MM-DD_phase-05-validation.md` and `docs/logs/test/YYYY-MM-DD_phase-05-validation-test.md` created.
 - [ ] **Un-negotiable Git Commit:** Only Phase 5 files staged and committed.
 
 #### 5.4 Developer Success Analysis & Gate Validation (Phase 5)
@@ -460,7 +460,7 @@ Implement the static language-to-group router (`src/routing/message-router.ts`),
   - Transient failure on 1 group (`ta`) transitions only `ta` to `retry_wait` and succeeds on retry without resending `ms`, `en`, or `zh-CN`.
   - Simulated 30s send timeout transitions the job to `uncertain` and never auto-retries it.
   - Simulated crash (expired `sending` lease) transitions the orphaned job to `uncertain` on recovery startup.
-- [ ] **Un-negotiable Docs:** `docs/logs/dev/phase-06-delivery-queue.md` and `docs/logs/test/phase-06-delivery-queue-test.md` created.
+- [ ] **Un-negotiable Docs:** `docs/logs/dev/YYYY-MM-DD_phase-06-delivery-queue.md` and `docs/logs/test/YYYY-MM-DD_phase-06-delivery-queue-test.md` created.
 - [ ] **Un-negotiable Git Commit:** Only Phase 6 files staged and committed.
 
 #### 6.4 Developer Success Analysis & Gate Validation (Phase 6)
@@ -500,12 +500,12 @@ Wire all layers together in the application composition root (`src/app.ts`) and 
 - [ ] End-to-end integration test suite (`tests/integration/e2e-pipeline.test.ts`) passes 100% across all 11 fixture scenarios and failure/recovery simulations.
 - [ ] Complete microsecond ($\mu\text{s}$) telemetry benchmark table recorded across all message types (`TEXT`, `IMAGE_CAPTION`, `IMAGE_ONLY`).
 - [ ] Live SIM / Baileys smoke test executed (or marked `[POSTPONED_BY_DEVELOPER]` if physical redONE SIM has not yet arrived).
-- [ ] **Un-negotiable Docs:** `docs/logs/dev/phase-07-e2e-and-baileys.md` and `docs/logs/test/phase-07-e2e-and-baileys-test.md` created.
+- [ ] **Un-negotiable Docs:** `docs/logs/dev/YYYY-MM-DD_phase-07-e2e-and-baileys.md` and `docs/logs/test/YYYY-MM-DD_phase-07-e2e-and-baileys-test.md` created.
 - [ ] **Un-negotiable Git Commit:** Only Phase 7 files staged and committed.
 
 #### 7.4 Developer Success Analysis & Final Release Sign-Off (Phase 7)
 1. Run the complete test suite (`npm test` and `npm run build`) and verify zero TypeScript errors and 100% test pass rate.
-2. Review the consolidated Telemetry Benchmark Report in `docs/logs/test/phase-07-e2e-and-baileys-test.md` to inspect exact $\mu\text{s}$ latencies for ingestion, gate checks, context assembly, AI classification/extraction/translation/validation, reconstruction, and dispatch.
+2. Review the consolidated Telemetry Benchmark Report in `docs/logs/test/YYYY-MM-DD_phase-07-e2e-and-baileys-test.md` to inspect exact $\mu\text{s}$ latencies for ingestion, gate checks, context assembly, AI classification/extraction/translation/validation, reconstruction, and dispatch.
 3. Verify `git status` is clean and `git log` shows one clean, scoped commit per phase with all corresponding `dev_log`, `test_log`, and `fix_log` files intact.
 
 ---
@@ -514,14 +514,14 @@ Wire all layers together in the application composition root (`src/app.ts`) and 
 
 | Phase | Name | Primary Owner | Mandatory Logs (`docs/logs/...`) | Commit Scope Prefix | Gate Requirement |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Phase 0** | Initialization, Telemetry Core & Oracle Setup | `developer.agent` + `tester.agent` | `dev/phase-00-*`, `test/phase-00-*` | `chore(phase-00/init):` | Local toolchain + $\mu\text{s}$ tracer pass; Oracle VM verified (or explicitly postponed by dev) |
-| **Phase 1** | SQLite WAL Engine, Migrations & Repositories | `developer.agent` + `tester.agent` | `dev/phase-01-*`, `test/phase-01-*` | `feat(phase-01/database):` | All 9 tables, constraints, ACID transactions & repo unit tests pass |
-| **Phase 2** | WhatsApp Interface, Mock Adapter & Fixtures | `developer.agent` + `tester.agent` | `dev/phase-02-*`, `test/phase-02-*` | `feat(phase-02/whatsapp-mock):` | `CP01` normalizer + 11 synthetic fixtures + fault injection tests pass |
-| **Phase 3** | Ingestion, 5-Gate Filter, Media Store & Context | `developer.agent` + `tester.agent` | `dev/phase-03-*`, `test/phase-03-*` | `feat(phase-03/ingestion):` | `CP02` & `CP03` + 3-path routing (`TEXT`, `IMAGE_CAPTION`, `IMAGE_ONLY`) pass |
-| **Phase 4** | Gemini 3.8 Flash Pipeline (Stages A, B, C) | `developer.agent` + `tester.agent` | `dev/phase-04-*`, `test/phase-04-*` | `feat(phase-04/ai-pipeline):` | `CP04`–`CP06` + hybrid 4-language (`ms`, `en`, `zh-CN`, `ta`) tests pass |
-| **Phase 5** | Stage D Deterministic Factual Validator | `developer.agent` + `tester.agent` | `dev/phase-05-*`, `test/phase-05-*` | `feat(phase-05/validation):` | `CP07` protected values (URLs, dates, numbers, glossary) + retry/quarantine pass |
-| **Phase 6** | Persistent Queue, Reconstructor & Dispatcher | `developer.agent` + `tester.agent` | `dev/phase-06-*`, `test/phase-06-*` | `feat(phase-06/delivery):` | `CP08`–`CP10` + `uncertain` timeout lock + crash recovery + `[JOURNEY_SUMMARY]` pass |
-| **Phase 7** | E2E Composition, Full QA & Live Baileys Client | `developer.agent` + `tester.agent` | `dev/phase-07-*`, `test/phase-07-*` | `feat(phase-07/e2e-baileys):` | All 11 E2E scenarios + telemetry benchmark pass; ready for live SIM cutover |
+| **Phase 0** | Initialization, Telemetry Core & Oracle Setup | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-00-*`, `test/YYYY-MM-DD_phase-00-*` | `chore(phase-00/init):` | Local toolchain + $\mu\text{s}$ tracer pass; Oracle VM verified (or explicitly postponed by dev) |
+| **Phase 1** | SQLite WAL Engine, Migrations & Repositories | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-01-*`, `test/YYYY-MM-DD_phase-01-*` | `feat(phase-01/database):` | All 9 tables, constraints, ACID transactions & repo unit tests pass |
+| **Phase 2** | WhatsApp Interface, Mock Adapter & Fixtures | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-02-*`, `test/YYYY-MM-DD_phase-02-*` | `feat(phase-02/whatsapp-mock):` | `CP01` normalizer + 11 synthetic fixtures + fault injection tests pass |
+| **Phase 3** | Ingestion, 5-Gate Filter, Media Store & Context | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-03-*`, `test/YYYY-MM-DD_phase-03-*` | `feat(phase-03/ingestion):` | `CP02` & `CP03` + 3-path routing (`TEXT`, `IMAGE_CAPTION`, `IMAGE_ONLY`) pass |
+| **Phase 4** | Gemini 3.8 Flash Pipeline (Stages A, B, C) | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-04-*`, `test/YYYY-MM-DD_phase-04-*` | `feat(phase-04/ai-pipeline):` | `CP04`–`CP06` + hybrid 4-language (`ms`, `en`, `zh-CN`, `ta`) tests pass |
+| **Phase 5** | Stage D Deterministic Factual Validator | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-05-*`, `test/YYYY-MM-DD_phase-05-*` | `feat(phase-05/validation):` | `CP07` protected values (URLs, dates, numbers, glossary) + retry/quarantine pass |
+| **Phase 6** | Persistent Queue, Reconstructor & Dispatcher | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-06-*`, `test/YYYY-MM-DD_phase-06-*` | `feat(phase-06/delivery):` | `CP08`–`CP10` + `uncertain` timeout lock + crash recovery + `[JOURNEY_SUMMARY]` pass |
+| **Phase 7** | E2E Composition, Full QA & Live Baileys Client | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-07-*`, `test/YYYY-MM-DD_phase-07-*` | `feat(phase-07/e2e-baileys):` | All 11 E2E scenarios + telemetry benchmark pass; ready for live SIM cutover |
 
 ---
 

@@ -1,6 +1,6 @@
 Save in: `docs/logs/fixes/`
 
-File naming convention: `YYYY-MM-DD_FIX_<Phase>_<Module>_<ShortDescription>.md`
+File naming convention: `YYYY-MM-DD_phase-0X-fix-<short-issue-slug>.md`
 
 # Fix Log: [Phase Number / Name] — [Module or Defect]
 
