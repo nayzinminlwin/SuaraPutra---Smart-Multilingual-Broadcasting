@@ -1,3 +1,5 @@
+Save in: `docs/logs/dev/`
+
 File naming convention: `YYYY-MM-DD_<Phase>_<Module>_<ShortDescription>.md`
 
 # Development Log: [Phase Number / Name] — [Module or Feature]
@@ -25,7 +27,7 @@ _State what was implemented, changed, or investigated._
 
 ## 3. References
 
-- [Project plan section or document](../project-plan.md)
+- [Project plan section or document](../../project-plan.md)
 - [Architecture, API, database, or decision document]
 - [Relevant skill or specification]
 

@@ -1,3 +1,5 @@
+Save in: `docs/logs/test/`
+
 File naming convention: `YYYY-MM-DD_<Phase>_<FeatureOrBug>_QA.md`
 
 # QA Report: [Phase Number / Name] — [Feature or Module]
@@ -19,8 +21,8 @@ File naming convention: `YYYY-MM-DD_<Phase>_<FeatureOrBug>_QA.md`
 
 **References:**
 
-- [Project plan section or document](../project-plan.md)
-- [Development log](../development-logs/path-to-log.md)
+- [Project plan section or document](../../project-plan.md)
+- [Development log](../dev/phase-0X-<phase-slug>.md)
 - [Relevant specification or decision document]
 
 **Out of scope:**
