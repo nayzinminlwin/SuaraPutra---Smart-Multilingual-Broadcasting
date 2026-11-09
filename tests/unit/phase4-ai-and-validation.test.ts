@@ -125,4 +125,31 @@ describe('Phase 4 AI processor and validation', () => {
     expect(error.mock.calls.some(([value]) => String(value).includes('CP05_AI_PROCESS:FAILED'))).toBe(true);
     error.mockRestore();
   });
+
+  it('holds a regeneration that violates the original score contract', async () => {
+    const id = 'validation-contract-failure';
+    const provider = new MockModelProvider([
+      translated(id, 'Announcement without the source link'),
+      response(id, 2, { English: null, Malay: null, Tamil: null, Mandarin: null })
+    ]);
+    const result = await new AiProcessor({ provider, sleep: async () => undefined }).process({
+      id, type: 'TEXT-MESSAGE', content: 'Announcement https://upm.edu.my'
+    });
+
+    expect(result.status).toBe('held_validation_failed');
+    expect(result.validation?.valid).toBe(false);
+  });
+
+  it('holds malformed model output instead of accepting or silently dropping it', async () => {
+    const id = 'malformed-response';
+    const provider = new MockModelProvider([{ id, score: 8, English: 'only one field' }]);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(new AiProcessor({ provider, sleep: async () => undefined }).process({
+      id, type: 'TEXT-MESSAGE', content: 'Announcement'
+    })).rejects.toThrow('Invalid AI response');
+
+    expect(error.mock.calls.some(([value]) => String(value).includes('CP05_AI_PROCESS:FAILED'))).toBe(true);
+    error.mockRestore();
+  });
 });

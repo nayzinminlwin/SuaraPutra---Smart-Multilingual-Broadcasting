@@ -67,12 +67,13 @@ export class AiProcessor {
       this.recordProviderFailure(input, error);
       throw error;
     }
-    const response = this.parseResponse(providerResult.value);
-    if (response.id !== input.id) {
-      throw new Error(`AI response id mismatch: expected ${input.id}, received ${response.id}`);
-    }
-    if (input.type === 'TEXT CAPTION FROM IMAGE' && response.score !== 10) {
-      throw new Error('Image caption response must have score 10.0');
+    let response: TranslationResponse;
+    try {
+      response = this.parseResponse(providerResult.value);
+      this.assertResponseContract(input, response);
+    } catch (error) {
+      this.recordProviderFailure(input, error);
+      throw error;
     }
 
     const shouldTranslate = input.type === 'TEXT CAPTION FROM IMAGE' || response.score >= this.scoreThreshold;
@@ -108,7 +109,29 @@ export class AiProcessor {
       this.recordProviderFailure(input, error);
       throw error;
     }
-    const regeneratedResponse = this.parseResponse(regenerated.value);
+    let regeneratedResponse: TranslationResponse;
+    try {
+      regeneratedResponse = this.parseResponse(regenerated.value);
+    } catch (error) {
+      const contractErrors = [error instanceof Error ? error.message : 'Invalid regenerated AI response'];
+      console.error('[ERROR] [CP05_AI_PROCESS:FAILED]', { id: input.id, errors: contractErrors });
+      this.markHeld(input, contractErrors);
+      throw error;
+    }
+    try {
+      this.assertResponseContract(input, regeneratedResponse, true);
+    } catch (error) {
+      const contractErrors = [error instanceof Error ? error.message : 'Invalid regenerated AI response'];
+      console.error('[ERROR] [CP05_AI_PROCESS:FAILED]', { id: input.id, errors: contractErrors });
+      this.markHeld(input, contractErrors);
+      return {
+        response: regeneratedResponse,
+        status: 'held_validation_failed',
+        validation: { valid: false, errors: contractErrors, durationUs: 0 },
+        attempts: providerResult.attempts + regenerated.attempts,
+        validationAttempts: 2
+      };
+    }
     validation = this.validator.validate(input.sourceText ?? input.content, regeneratedResponse, tracer);
     if (validation.valid) {
       this.logEvent('AI_TRANSLATED', input, { score: regeneratedResponse.score, validationRetry: true });
@@ -172,6 +195,26 @@ export class AiProcessor {
     const parsed = TranslationResponseSchema.safeParse(candidate);
     if (!parsed.success) throw new Error(`Invalid AI response: ${parsed.error.message}`);
     return parsed.data;
+  }
+
+  private assertResponseContract(
+    input: AiProcessInput,
+    response: TranslationResponse,
+    requireTranslation = false
+  ): void {
+    if (response.id !== input.id) {
+      throw new Error(`AI response id mismatch: expected ${input.id}, received ${response.id}`);
+    }
+    if (input.type === 'TEXT CAPTION FROM IMAGE' && response.score !== 10) {
+      throw new Error('Image caption response must have score 10.0');
+    }
+    if (requireTranslation && input.type === 'TEXT-MESSAGE' && response.score < this.scoreThreshold) {
+      throw new Error('Regenerated TEXT-MESSAGE response fell below the worthiness threshold');
+    }
+    if (input.type === 'TEXT-MESSAGE' && response.score < this.scoreThreshold &&
+      [response.English, response.Malay, response.Tamil, response.Mandarin].some(value => value !== null)) {
+      throw new Error('Low-scoring TEXT-MESSAGE response must contain null language fields');
+    }
   }
 
   private logEvent(eventType: string, input: AiProcessInput, details: Record<string, unknown>): void {

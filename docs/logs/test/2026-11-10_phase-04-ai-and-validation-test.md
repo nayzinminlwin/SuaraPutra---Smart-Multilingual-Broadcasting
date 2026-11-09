@@ -76,3 +76,27 @@ full existing regression suite.
 
 - Live Gemini response compatibility requires later controlled integration
   verification without committing credentials or operational data.
+
+## Retest — 2026-11-10
+
+**Build or commit under test:** Audit working tree after `8b011a1`
+**Status:** PASSED
+
+**Issues retested:**
+
+- Provider nullable JSON schema compatibility — Resolved
+- Regeneration score-contract bypass — Resolved
+- Malformed model output audit path — Resolved
+
+**New issues:**
+
+- [None]
+
+**Commands and evidence:** Focused suite 9/9 passed; full suite 33/33
+passed; `npm run typecheck`, `npm run build`, and `git diff --check` passed.
+
+**Notes:**
+
+The audit confirmed that no WhatsApp adapter, destination routing, or delivery
+behavior is present in the AI boundary. Live Gemini API compatibility remains
+unverified because credentials were not used.

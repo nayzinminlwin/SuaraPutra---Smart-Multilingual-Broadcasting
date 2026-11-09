@@ -2,6 +2,19 @@ import { GoogleGenAI } from '@google/genai';
 import type { TranslationPromptType } from './prompts/translation.prompt.js';
 import { TranslationResponseSchema } from './schemas/translation.schema.js';
 
+export const TRANSLATION_RESPONSE_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    score: { type: 'number', minimum: 1, maximum: 10 },
+    English: { type: 'string', nullable: true },
+    Malay: { type: 'string', nullable: true },
+    Tamil: { type: 'string', nullable: true },
+    Mandarin: { type: 'string', nullable: true }
+  },
+  required: ['id', 'score', 'English', 'Malay', 'Tamil', 'Mandarin']
+} as const;
+
 export interface ModelGenerateRequest {
   prompt: string;
   id: string;
@@ -33,18 +46,7 @@ export class GeminiModelProvider implements IModelProvider {
       contents: request.prompt,
       config: {
         responseMimeType: 'application/json',
-        responseJsonSchema: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            score: { type: 'number', minimum: 1, maximum: 10 },
-            English: { type: ['string', 'null'] },
-            Malay: { type: ['string', 'null'] },
-            Tamil: { type: ['string', 'null'] },
-            Mandarin: { type: ['string', 'null'] }
-          },
-          required: ['id', 'score', 'English', 'Malay', 'Tamil', 'Mandarin']
-        },
+        responseJsonSchema: TRANSLATION_RESPONSE_JSON_SCHEMA,
         temperature: 0.1
       }
     });
