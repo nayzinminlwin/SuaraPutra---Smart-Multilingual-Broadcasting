@@ -39,8 +39,9 @@ export class ContextAssembler {
         message.chatJid,
         Math.max(0, message.timestampMs - this.windowSeconds * 1000),
         this.maxMessages,
-        message.timestampMs
-      ).filter(source => source.id !== persisted.id);
+        message.timestampMs,
+        message.messageId
+      );
       const sourceMessageIds = [
         persisted.id,
         ...(quoted && 'id' in quoted ? [quoted.id] : []),

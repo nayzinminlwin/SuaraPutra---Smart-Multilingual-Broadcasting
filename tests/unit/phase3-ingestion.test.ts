@@ -11,6 +11,7 @@ import { ContextAssembler } from '../../src/ingestion/context-assembler.js';
 import { MediaStore } from '../../src/ingestion/media-store.js';
 import { MessageIngestor } from '../../src/ingestion/message-ingestor.js';
 import { normalizeUpsert } from '../../src/whatsapp/event-normalizer.js';
+import { sha256Hex } from '../../src/shared/crypto.js';
 import type { NormalizedInboundMessage } from '../../src/whatsapp/adapter.js';
 
 const sourceJid = '120000000001@g.us';
@@ -70,6 +71,19 @@ describe('Phase 3 ingestion pipeline', () => {
     expect((await ingestor.enqueue(base)).accepted).toBe(true);
     expect((await ingestor.enqueue(base)).reason).toBe('duplicate');
     expect(sources.findById('does-not-exist')).toBeNull();
+  });
+
+  it('uses the architecture-defined content hash formulas', async () => {
+    const { ingestor, sources } = createIngestor();
+    const message: NormalizedInboundMessage = {
+      chatJid: sourceJid, messageId: 'hash-message', senderJid: '60100000001@s.whatsapp.net',
+      senderPushName: null, fromMe: false, timestampMs: 1794227520000, kind: 'TEXT',
+      text: '  A   notice\nwith spacing  ', quotedMessageId: null, quotedParticipantJid: null,
+      quotedText: null, media: null, rawPayloadJson: '{}'
+    };
+    await ingestor.enqueue(message);
+    expect(sources.findRecent(sourceJid, 0, 10)[0]?.contentHash)
+      .toBe(sha256Hex('A notice with spacing'));
   });
 
   it('persists image media and releases the inbound buffer before returning', async () => {

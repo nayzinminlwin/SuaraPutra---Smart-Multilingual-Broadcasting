@@ -75,12 +75,19 @@ export class SourceMessageRepository {
     return row ? map(row) : null;
   }
 
-  findRecent(chatJid: string, fromTimestampMs: number, limit: number, toTimestampMs = Number.MAX_SAFE_INTEGER): SourceMessage[] {
+  findRecent(
+    chatJid: string,
+    fromTimestampMs: number,
+    limit: number,
+    toTimestampMs = Number.MAX_SAFE_INTEGER,
+    excludeMessageId?: string
+  ): SourceMessage[] {
     const rows = this.client.prepare(`
       SELECT * FROM source_messages
       WHERE chat_jid = ? AND timestamp_ms >= ? AND timestamp_ms <= ?
+        AND (? IS NULL OR message_id != ?)
       ORDER BY timestamp_ms ASC, ingestion_seq ASC LIMIT ?
-    `).all(chatJid, fromTimestampMs, toTimestampMs, limit) as SourceRow[];
+    `).all(chatJid, fromTimestampMs, toTimestampMs, excludeMessageId ?? null, excludeMessageId ?? null, limit) as SourceRow[];
     return rows.map(map);
   }
 

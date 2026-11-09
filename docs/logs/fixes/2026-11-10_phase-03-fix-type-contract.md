@@ -33,3 +33,16 @@ test suite all pass after the correction.
 
 None introduced. Live transport and downstream AI/delivery integration remain
 outside Phase 3.
+
+## Audit Correction — 2026-11-10
+
+The post-phase architecture audit found two additional contract mismatches:
+
+- Content hashes included chat/message identity instead of the approved
+  normalized text or media/caption formulas.
+- Context selection fetched the current message and filtered it in memory,
+  reducing the configured context limit by one.
+
+The deduplicator now follows the architecture formulas, and the repository
+excludes the current message in SQL before applying the context limit.
+The focused suite now passes 5 tests and the full suite passes 24 tests.

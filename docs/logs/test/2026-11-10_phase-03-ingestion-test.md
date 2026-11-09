@@ -81,3 +81,18 @@ regression. CP02, CP03, and CP04 logs were visible during execution.
 # Retest History
 
 No retest required.
+
+## Retest — 2026-11-10
+
+**Build or commit under test:** Post-audit working tree
+**Status:** PASSED
+
+**Issues retested:**
+
+- Content-hash formula alignment — Resolved.
+- Context-window limit excluding the current message — Resolved.
+
+**New issues:** None.
+
+**Commands and evidence:** Focused Phase 3 suite passed 5 tests; full suite
+passed 24 tests; typecheck and build passed.

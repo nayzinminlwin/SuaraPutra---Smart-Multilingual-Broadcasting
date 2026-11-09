@@ -10,14 +10,13 @@ export class MessageDeduplicator {
   }
 
   contentHash(message: NormalizedInboundMessage): string {
+    const normalizeWhitespace = (value: string): string => value.trim().replace(/\s+/g, ' ');
     const mediaHash = message.media?.fileSha256Hex ??
       (message.media?.buffer ? sha256Hex(message.media.buffer) : '');
-    return sha256Hex([
-      message.chatJid,
-      message.messageId,
-      message.kind,
-      message.text ?? '',
-      mediaHash
-    ].join('\u001f'));
+    if (message.kind === 'IMAGE_ONLY') return sha256Hex(mediaHash);
+    if (message.kind === 'IMAGE_CAPTION') {
+      return sha256Hex(`${mediaHash}:${normalizeWhitespace(message.text ?? '')}`);
+    }
+    return sha256Hex(normalizeWhitespace(message.text ?? ''));
   }
 }
