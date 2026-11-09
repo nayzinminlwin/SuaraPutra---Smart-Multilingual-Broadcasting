@@ -1,6 +1,6 @@
 ---
 name: ai-translation-engine
-description: "Guides AI-powered announcement classification, multilingual content analysis, canonical fact extraction, translation, language-coverage handling, structured output, prompt safety, and validation. Use when implementing, modifying, evaluating, or debugging the AI processing pipeline."
+description: "Guides the unified Gemini announcement-scoring and multilingual translation pipeline, structured output, prompt safety, and deterministic validation. Use when implementing, modifying, evaluating, or debugging the AI processing pipeline."
 ---
 
 # AI Translation Engine
@@ -22,39 +22,27 @@ The configured language identifiers are:
 Keep language styles, glossary entries, model settings, and thresholds in
 trusted configuration. Do not independently rename language identifiers.
 
-## Processing stages
+## Unified processing contract
 
-Implement and test these stages as explicit contracts:
+The application makes one Gemini 3.8 Flash (`gemini-3.8-flash`) call for each
+`TEXT` or `IMAGE_CAPTION` message. The response scores text worthiness and
+returns the four language outputs in the same JSON response:
 
-1. **Classification** — classify a normalized message and bounded related
-   context as `announcement`, `not_announcement`, or `uncertain`.
-2. **Fact extraction** — produce canonical facts, source-message references,
-   detected source languages, conflicts, and missing critical information.
-3. **Language coverage** — determine whether each target language is complete,
-   partial, missing, or conflicting against the canonical facts.
-4. **Generation** — create one complete output for every configured language.
-5. **Validation** — verify structure, completeness, protected values, and
-   factual consistency before any delivery job is created.
+- `English`
+- `Malay`
+- `Tamil`
+- `Mandarin`
 
-Do not collapse these stages into an untestable prompt or allow an LLM
-response to bypass deterministic validation.
+For `TEXT-MESSAGE`, the model returns a `1.0`–`10.0` score. Scores below
+`4.0` return `null` for all language fields and create no delivery jobs.
+Scores of `4.0` or higher return all four translations. For
+`TEXT CAPTION FROM IMAGE`, worthiness evaluation is skipped and the score is
+`10.0`; the caption is translated directly into all four languages.
 
-## Meaning-first translation
-
-Understand the complete announcement before generating language outputs. Source
-facts may be distributed across English, Malay, Mandarin, Tamil, or related
-messages. Do not translate each language block independently and concatenate
-the results.
-
-For each target language:
-
-- reuse or lightly normalize a complete, accurate source-language version;
-- combine partial language content with facts from the complete context;
-- generate a complete version when coverage is missing;
-- hold the announcement when facts conflict or are ambiguous.
-
-Completeness is measured against canonical facts, not the amount of source text
-already written in a language. Never publish a partial destination version.
+Content-aware handling remains part of this call: blended multilingual text is
+translated as one message, while complete separated language versions are
+preserved verbatim and only missing languages are generated. Do not add a
+separate fact-extraction or language-coverage stage.
 
 ## Translation rules
 
@@ -72,22 +60,15 @@ clarifications, or missing facts. Do not add “AI translation” commentary.
 ## Structured contracts and validation
 
 Model responses are untrusted. Parse them as `unknown` and validate them with
-the repository's runtime schema validator before use. Require:
+the repository's runtime schema validator before use. Require the response
+shape `{ id, score, English, Malay, Tamil, Mandarin }`, with nullable language
+fields for low-scoring text.
 
-- one recognized classification result;
-- source message IDs used as context;
-- canonical facts with source locations and criticality;
-- explicit conflicts and hold requirements;
-- all four target language outputs;
-- validation status and safe failure details.
-
-Deterministically compare protected values wherever possible. At minimum,
-check dates, times, URLs, phone numbers, amounts, identifiers, and required
-facts against the canonical representation. Dates may be rendered in
-localized formats, but the underlying date must not change.
-
-Malformed, incomplete, contradictory, or uncertain output is a controlled
-failure or hold—not an empty success result.
+Before delivery jobs are created, `TranslationValidator` deterministically
+checks that every required language output is a non-empty string of at most
+4096 characters and that every source `http://` or `https://` URL is preserved
+verbatim in all four outputs. A failed validation receives at most one retry;
+continued failure holds the announcement as `held_validation_failed`.
 
 ## Context and classification
 
@@ -97,9 +78,9 @@ a short time window chosen from evaluation evidence. Prefer same-sender or
 explicitly related messages and preserve every source message ID used.
 
 Do not combine unrelated conversation merely because it is nearby. A short
-message can still be an announcement when context supplies the meaning.
-Calibrate automatic thresholds using a labeled evaluation set. Do not invent
-universal numeric thresholds before measurement.
+message can still be an announcement when bounded context supplies the
+meaning. The production worthiness threshold is `4.0`, as defined by the
+architecture and project plan.
 
 ## Prompt and data safety
 
@@ -133,15 +114,14 @@ fabricated fallback.
 Build synthetic and approved evaluation fixtures covering:
 
 - ordinary conversation, short announcements, and mixed-language messages;
-- facts distributed across multiple related messages;
-- complete, partial, missing, and conflicting language coverage;
+- complete separated language versions and missing target languages;
 - protected URLs, dates, times, amounts, identifiers, and names;
 - malformed schemas, prompt-injection content, provider timeouts, and
   uncertain classifications.
 
-Measure classification precision/recall, language completeness, protected
-value preservation, unsupported-fact rate, latency, and provider cost. Keep
-the evaluation set separate from production data.
+Measure score-threshold decisions, translation completeness, protected-value
+preservation, unsupported-fact rate, latency, and provider cost. Keep the
+evaluation set separate from production data.
 
 ## References
 
