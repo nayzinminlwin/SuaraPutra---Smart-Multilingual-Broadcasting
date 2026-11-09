@@ -75,12 +75,12 @@ export class SourceMessageRepository {
     return row ? map(row) : null;
   }
 
-  findRecent(chatJid: string, fromTimestampMs: number, limit: number): SourceMessage[] {
+  findRecent(chatJid: string, fromTimestampMs: number, limit: number, toTimestampMs = Number.MAX_SAFE_INTEGER): SourceMessage[] {
     const rows = this.client.prepare(`
       SELECT * FROM source_messages
-      WHERE chat_jid = ? AND timestamp_ms >= ?
+      WHERE chat_jid = ? AND timestamp_ms >= ? AND timestamp_ms <= ?
       ORDER BY timestamp_ms ASC, ingestion_seq ASC LIMIT ?
-    `).all(chatJid, fromTimestampMs, limit) as SourceRow[];
+    `).all(chatJid, fromTimestampMs, toTimestampMs, limit) as SourceRow[];
     return rows.map(map);
   }
 
