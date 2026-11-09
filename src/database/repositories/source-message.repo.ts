@@ -38,7 +38,7 @@ export class SourceMessageRepository {
 
   insert(input: SourceMessageInput): SourceMessage {
     try {
-      const result = this.client.database.prepare(`
+      const result = this.client.prepare(`
         INSERT INTO source_messages
         (id, chat_jid, message_id, sender_jid, sender_push_name, timestamp_ms, message_kind,
          text_content, content_hash, quoted_message_id, quoted_participant_jid, quoted_text,
@@ -65,18 +65,18 @@ export class SourceMessageRepository {
   }
 
   exists(chatJid: string, messageId: string): boolean {
-    return Boolean(this.client.database.prepare(
+    return Boolean(this.client.prepare(
       'SELECT 1 FROM source_messages WHERE chat_jid = ? AND message_id = ?'
     ).get(chatJid, messageId));
   }
 
   findById(id: string): SourceMessage | null {
-    const row = this.client.database.prepare('SELECT * FROM source_messages WHERE id = ?').get(id) as SourceRow | undefined;
+    const row = this.client.prepare('SELECT * FROM source_messages WHERE id = ?').get(id) as SourceRow | undefined;
     return row ? map(row) : null;
   }
 
   findRecent(chatJid: string, fromTimestampMs: number, limit: number): SourceMessage[] {
-    const rows = this.client.database.prepare(`
+    const rows = this.client.prepare(`
       SELECT * FROM source_messages
       WHERE chat_jid = ? AND timestamp_ms >= ?
       ORDER BY timestamp_ms ASC, ingestion_seq ASC LIMIT ?
@@ -85,14 +85,14 @@ export class SourceMessageRepository {
   }
 
   findQuoted(chatJid: string, messageId: string): SourceMessage | null {
-    const row = this.client.database.prepare(
+    const row = this.client.prepare(
       'SELECT * FROM source_messages WHERE chat_jid = ? AND message_id = ?'
     ).get(chatJid, messageId) as SourceRow | undefined;
     return row ? map(row) : null;
   }
 
   pruneBefore(ingestedAtIso: string): number {
-    return this.client.database.prepare(
+    return this.client.prepare(
       'DELETE FROM source_messages WHERE ingested_at < ? AND id NOT IN (SELECT source_message_id FROM announcement_sources)'
     ).run(ingestedAtIso).changes;
   }

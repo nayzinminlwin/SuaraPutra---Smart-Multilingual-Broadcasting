@@ -22,7 +22,18 @@ export class DatabaseClient {
   }
 
   prepare(sql: string): Database.Statement {
-    return this.database.prepare(sql);
+    const statement = this.database.prepare(sql);
+    return new Proxy(statement, {
+      get: (target, property, receiver) => {
+        const value = Reflect.get(target, property, receiver);
+        if (typeof value !== 'function' || !['run', 'get', 'all', 'iterate'].includes(String(property))) {
+          return value;
+        }
+        return (...parameters: unknown[]) => this.measure(String(property), sql, () =>
+          Reflect.apply(value, target, parameters)
+        );
+      }
+    });
   }
 
   transaction<T>(operation: () => T): T {

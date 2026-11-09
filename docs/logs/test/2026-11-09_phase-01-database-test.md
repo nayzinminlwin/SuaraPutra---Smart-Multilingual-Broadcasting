@@ -39,7 +39,8 @@ dashboard, and deployment verification.
 | T-03 | Duplicate source identity | Duplicate `(chat_jid, message_id)` raises typed error | PASS | Phase 1 unit test |
 | T-04 | FIFO polling | Earlier source timestamp and lower language order poll first | PASS | Phase 1 unit test |
 | T-05 | Atomic job insertion | Duplicate idempotency key rolls back all inserted jobs | PASS | Phase 1 unit test |
-| T-06 | Regression | Existing Phase 0 tests remain passing | PASS | Full suite |
+| T-06 | Lease recovery | Fresh leases remain active and sent jobs remain terminal | PASS | Phase 1 regression test |
+| T-07 | Regression | Existing Phase 0 tests remain passing | PASS | Full suite |
 
 ## 3. Automated Testing
 
@@ -55,7 +56,7 @@ git diff --check
 
 **Results:**
 
-- **Passed:** 4 Phase 1 tests; 7 total tests; typecheck; build; diff check.
+- **Passed:** 5 Phase 1 tests; 8 total tests; typecheck; build; diff check.
 - **Failed:** None in final execution.
 - **Skipped / blocked:** Independent QA execution and live/upgrade-database
   verification remain pending.
@@ -63,9 +64,9 @@ git diff --check
 
 ## 4. Issues Found
 
-No unresolved defects. The initial implementation omitted the required
-`pending` state when inserting delivery jobs; the targeted test caught it and
-the repository was corrected before the final run.
+No unresolved defects. The review found and corrected lease timestamp
+comparison, state-transition guarding, duplicate classification, and missing
+prepared-statement timing instrumentation. See the [fix log](../fixes/2026-11-09_phase-01-fix-delivery-lease-state.md).
 
 ## 5. Final Assessment
 

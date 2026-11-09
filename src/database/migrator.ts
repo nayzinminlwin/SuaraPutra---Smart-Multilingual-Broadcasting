@@ -26,7 +26,7 @@ export class MigrationRunner {
       const sql = readFileSync(existsSync(migrationPath) ? migrationPath : sourceMigrationPath, 'utf8');
       this.client.transaction(() => {
         this.client.exec(sql);
-        this.client.database.prepare('INSERT INTO _migrations (version) VALUES (?)').run(version);
+        this.client.prepare('INSERT INTO _migrations (version) VALUES (?)').run(version);
       });
     } catch (error) {
       throw new MigrationError('SQLite migration failed', { cause: error });

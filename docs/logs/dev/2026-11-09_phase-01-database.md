@@ -67,6 +67,8 @@ operational data.
 - Added idempotent migration tracking and the seven-table initial schema.
 - Added typed repositories with parameterized SQL, explicit state transitions,
   FIFO polling, lease claiming, and expired-lease quarantine.
+- Added prepared-statement microsecond debug instrumentation across repository
+  queries.
 
 ## 5. Technical Decisions and Deviations
 
@@ -81,6 +83,10 @@ operational data.
   **Rationale:** Phase 1 explicitly authorizes five repositories; trusted group
   configuration remains configuration-owned until a later integration surface
   needs persistence.
+- **Decision:** Lease timestamps use one ISO UTC representation for creation and
+  recovery.
+  **Rationale:** Lexicographic timestamp comparisons must use a consistent
+  format to avoid falsely quarantining active jobs.
 
 ## 6. Deliverables
 
@@ -90,7 +96,7 @@ operational data.
 | WAL client and migration runner | Complete | Required pragmas and tracked migration |
 | Seven-table schema | Complete | Initial migration with constraints and indexes |
 | Five repositories | Complete | Parameterized typed persistence operations |
-| Phase 1 unit tests | Complete | Four tests covering pragmas, sequences, FIFO, duplicates, and rollback |
+| Phase 1 unit tests | Complete | Five tests covering pragmas, sequences, FIFO, duplicates, rollback, and lease safety |
 
 ## 7. Verification
 
@@ -106,7 +112,7 @@ git diff --check
 
 **Results:**
 
-- **Passed:** Phase 1 tests (4 tests), full suite (7 tests), strict typecheck,
+- **Passed:** Phase 1 tests (5 tests), full suite (8 tests), strict typecheck,
   build, and diff check.
 - **Failed:** None in the final run. An initial queue test exposed missing
   explicit `pending` insertion state and was fixed before final verification.

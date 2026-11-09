@@ -35,8 +35,11 @@ export class DeliveryJobRepository {
       this.insertRaw(input);
       return this.findById(input.id) ?? (() => { throw new Error('Inserted delivery job could not be read'); })();
     } catch (error) {
-      if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint failed: delivery_jobs.idempotency_key')) {
         throw new DuplicateRecordError('delivery idempotency key', input.idempotencyKey);
+      }
+      if (error instanceof Error && error.message.includes('UNIQUE constraint failed: delivery_jobs.id')) {
+        throw new DuplicateRecordError('delivery job', input.id);
       }
       throw error;
     }
@@ -47,7 +50,7 @@ export class DeliveryJobRepository {
   }
 
   private insertRaw(input: DeliveryJobInput): void {
-    this.client.database.prepare(`
+    this.client.prepare(`
       INSERT INTO delivery_jobs
       (id, announcement_id, announcement_seq, source_timestamp_ms, language_code, language_order,
        target_group_jid, payload_type, text_content, media_local_path, media_mime_type, idempotency_key, status, max_attempts)
@@ -60,12 +63,12 @@ export class DeliveryJobRepository {
   }
 
   findById(id: string): DeliveryJob | null {
-    const row = this.client.database.prepare('SELECT * FROM delivery_jobs WHERE id = ?').get(id) as DeliveryRow | undefined;
+    const row = this.client.prepare('SELECT * FROM delivery_jobs WHERE id = ?').get(id) as DeliveryRow | undefined;
     return row ? map(row) : null;
   }
 
   pollNext(): DeliveryJob | null {
-    const row = this.client.database.prepare(`
+    const row = this.client.prepare(`
       SELECT * FROM delivery_jobs
       WHERE status IN ('pending', 'retry_wait')
         AND next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -78,10 +81,10 @@ export class DeliveryJobRepository {
     return this.client.transaction(() => {
       const job = this.pollNext();
       if (!job) return null;
-      const result = this.client.database.prepare(`
+      const result = this.client.prepare(`
         UPDATE delivery_jobs
         SET status = 'sending', attempts = attempts + 1, lease_owner = ?,
-            lease_expires_at = datetime('now', ?), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            lease_expires_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE id = ? AND status IN ('pending', 'retry_wait')
       `).run(leaseOwner, `+${leaseSeconds} seconds`, job.id);
       return result.changes === 1 ? this.findById(job.id) : null;
@@ -92,18 +95,18 @@ export class DeliveryJobRepository {
     this.transition(id, `
       status = 'sent', outgoing_message_id = ?, sent_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
       lease_owner = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-    `, [outgoingMessageId]);
+    `, [outgoingMessageId], ['sending']);
   }
 
   markFailure(id: string, status: Extract<DeliveryStatus, 'retry_wait' | 'uncertain' | 'failed_permanent'>, code: string, message: string, nextAttemptAt?: string): void {
     this.transition(id, `
       status = ?, last_error_code = ?, last_error_message = ?, next_attempt_at = COALESCE(?, next_attempt_at),
       lease_owner = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-    `, [status, code, message, nextAttemptAt ?? null]);
+    `, [status, code, message, nextAttemptAt ?? null], ['sending']);
   }
 
   recoverExpiredSending(): number {
-    return this.client.database.prepare(`
+    return this.client.prepare(`
       UPDATE delivery_jobs SET status = 'uncertain', last_error_code = 'LEASE_EXPIRED_CRASH',
         last_error_message = 'Expired sending lease recovered without automatic resend',
         lease_owner = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -111,10 +114,10 @@ export class DeliveryJobRepository {
     `).run().changes;
   }
 
-  private transition(id: string, assignments: string, parameters: unknown[]): void {
-    const result = this.client.database.prepare(
-      `UPDATE delivery_jobs SET ${assignments} WHERE id = ?`
-    ).run(...parameters, id);
+  private transition(id: string, assignments: string, parameters: unknown[], allowedStatuses: DeliveryStatus[]): void {
+    const result = this.client.prepare(
+      `UPDATE delivery_jobs SET ${assignments} WHERE id = ? AND status IN (${allowedStatuses.map(() => '?').join(', ')})`
+    ).run(...parameters, id, ...allowedStatuses);
     if (result.changes !== 1) throw new Error(`Delivery job not found: ${id}`);
   }
 }

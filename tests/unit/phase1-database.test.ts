@@ -106,4 +106,23 @@ describe('Phase 1 SQLite persistence', () => {
     expect(() => jobs.insertAtomic(inputs)).toThrow(DuplicateRecordError);
     expect(client.database.prepare('SELECT COUNT(*) AS count FROM delivery_jobs').get()).toEqual({ count: 0 });
   });
+
+  it('keeps fresh leases active and refuses terminal delivery transitions from pending', () => {
+    const client = createDatabase();
+    const sources = new SourceMessageRepository(client);
+    const announcements = new AnnouncementRepository(client);
+    const jobs = new DeliveryJobRepository(client);
+    sources.insert(source('source-1', 1000));
+    const created = announcements.create(announcement('announcement-1', 'source-1', 1000));
+    jobs.insert(job('job-1', created.id, created.announcementSeq, 1000, 1));
+
+    expect(() => jobs.markSent('job-1', 'outgoing-1')).toThrow('Delivery job not found');
+    const claimed = jobs.claimNext('worker-1', 45);
+    expect(claimed?.status).toBe('sending');
+    expect(claimed?.leaseExpiresAt).toMatch(/T/);
+    expect(jobs.recoverExpiredSending()).toBe(0);
+    jobs.markSent('job-1', 'outgoing-1');
+    expect(jobs.findById('job-1')?.status).toBe('sent');
+    expect(jobs.recoverExpiredSending()).toBe(0);
+  });
 });

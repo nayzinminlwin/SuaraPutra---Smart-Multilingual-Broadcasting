@@ -25,7 +25,7 @@ export class AnnouncementRepository {
 
   create(input: AnnouncementInput): Announcement {
     try {
-      this.client.database.prepare(`
+      this.client.prepare(`
         INSERT INTO announcements
         (id, primary_source_message_id, source_timestamp_ms, classification, evaluation_score,
          status, payload_type, media_local_path, media_mime_type, raw_ai_response_json)
@@ -50,7 +50,7 @@ export class AnnouncementRepository {
   createWithSources(input: AnnouncementInput, sources: ReadonlyArray<{ sourceMessageId: string; role: SourceLinkRole }>): Announcement {
     return this.client.transaction(() => {
       const announcement = this.create(input);
-      const statement = this.client.database.prepare(
+      const statement = this.client.prepare(
         'INSERT INTO announcement_sources (announcement_id, source_message_id, role) VALUES (?, ?, ?)'
       );
       for (const source of sources) statement.run(input.id, source.sourceMessageId, source.role);
@@ -59,19 +59,19 @@ export class AnnouncementRepository {
   }
 
   findById(id: string): Announcement | null {
-    const row = this.client.database.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnouncementRow | undefined;
+    const row = this.client.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnouncementRow | undefined;
     return row ? map(row) : null;
   }
 
   updateStatus(id: string, status: Announcement['status']): void {
-    const result = this.client.database.prepare(
+    const result = this.client.prepare(
       "UPDATE announcements SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?"
     ).run(status, id);
     if (result.changes !== 1) throw new Error(`Announcement not found: ${id}`);
   }
 
   findInterrupted(): Announcement[] {
-    const rows = this.client.database.prepare(`
+    const rows = this.client.prepare(`
       SELECT * FROM announcements WHERE status = 'processing'
       ORDER BY source_timestamp_ms ASC, announcement_seq ASC
     `).all() as AnnouncementRow[];

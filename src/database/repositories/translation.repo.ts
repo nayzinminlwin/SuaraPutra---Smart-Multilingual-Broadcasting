@@ -20,7 +20,7 @@ export class TranslationRepository {
 
   insert(input: TranslationInput): Translation {
     try {
-      this.client.database.prepare(`
+      this.client.prepare(`
         INSERT INTO translations
         (id, announcement_id, language_code, content, validation_status, validation_errors_json)
         VALUES (@id, @announcementId, @languageCode, @content, @validationStatus, @validationErrorsJson)
@@ -35,14 +35,14 @@ export class TranslationRepository {
   }
 
   find(announcementId: string, languageCode: TranslationInput['languageCode']): Translation | null {
-    const row = this.client.database.prepare(
+    const row = this.client.prepare(
       'SELECT * FROM translations WHERE announcement_id = ? AND language_code = ?'
     ).get(announcementId, languageCode) as TranslationRow | undefined;
     return row ? map(row) : null;
   }
 
   listForAnnouncement(announcementId: string): Translation[] {
-    const rows = this.client.database.prepare(
+    const rows = this.client.prepare(
       'SELECT * FROM translations WHERE announcement_id = ? ORDER BY language_code'
     ).all(announcementId) as TranslationRow[];
     return rows.map(map);
