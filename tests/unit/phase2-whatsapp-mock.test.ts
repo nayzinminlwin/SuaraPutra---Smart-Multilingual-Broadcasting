@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { WhatsAppAmbiguousTimeoutError, WhatsAppInvalidInputError, WhatsAppPermanentError, WhatsAppTransientError } from '../../src/shared/errors.js';
+import { WhatsAppAmbiguousTimeoutError, WhatsAppInvalidInputError, WhatsAppPermanentError, WhatsAppTransientError } from '../../src/whatsapp/errors.js';
 import { MockWhatsAppAdapter } from '../../src/whatsapp/mock-adapter.js';
 import { normalizeUpsert } from '../../src/whatsapp/event-normalizer.js';
 
@@ -36,11 +36,27 @@ describe('Phase 2 WhatsApp transport and mock adapter', () => {
       .toThrow(WhatsAppInvalidInputError);
   });
 
+  it('does not classify empty extended text as TEXT', () => {
+    const result = normalizeUpsert({
+      type: 'notify',
+      messages: [{
+        key: { remoteJid: '120000000001@g.us', id: 'empty-extended' },
+        messageTimestamp: 1794228000,
+        message: { extendedTextMessage: { text: '   ' } }
+      }]
+    }, {}, { maxMediaBytes: 1024 })[0];
+    expect(result.kind).toBe('UNSUPPORTED');
+    expect(result.text).toBeNull();
+  });
+
   it('emits CP01-style timing through the normalizer caller boundary without changing normalized data', () => {
     const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const adapter = new MockWhatsAppAdapter({ maxMediaBytes: 1024 });
-    expect(adapter.getConnectionStatus()).toBe('close');
-    expect(spy).not.toHaveBeenCalled();
+    const result = normalizeUpsert(fixture('01_text_english_only.json'), {}, { maxMediaBytes: 1024 })[0];
+    expect(result.messageId).toBe('fixture-01');
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('[CP01_INGEST_NORMALIZE] DONE'),
+      expect.objectContaining({ t_wa_source_sent_ms: 1794227520000 })
+    );
     spy.mockRestore();
   });
 
@@ -58,5 +74,15 @@ describe('Phase 2 WhatsApp transport and mock adapter', () => {
     const result = await adapter.sendMessage('120000000001@g.us', { type: 'TEXT', text: 'synthetic' });
     expect(result.outgoingMessageId).toMatch(/^mock-out-1-/);
     expect(adapter.getSentMessages()).toHaveLength(1);
+    expect(adapter.getSentMessages()[0].t_wa_translated_sent_ms).toEqual(expect.any(Number));
+  });
+
+  it('supports deterministic fault injection by call index', async () => {
+    const adapter = new MockWhatsAppAdapter({
+      faultModesByCallIndex: { 2: 'PERMANENT_ERROR' }
+    });
+    await expect(adapter.sendMessage('120000000001@g.us', { type: 'TEXT', text: 'first' })).resolves.toBeDefined();
+    await expect(adapter.sendMessage('120000000002@g.us', { type: 'TEXT', text: 'second' }))
+      .rejects.toBeInstanceOf(WhatsAppPermanentError);
   });
 });

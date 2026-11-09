@@ -39,6 +39,7 @@ WhatsApp data.
 **Files created:**
 
 - `src/whatsapp/adapter.ts`
+- `src/whatsapp/errors.ts`
 - `src/whatsapp/event-normalizer.ts`
 - `src/whatsapp/mock-adapter.ts`
 - `tests/unit/phase2-whatsapp-mock.test.ts`
@@ -61,7 +62,8 @@ WhatsApp data.
   handling, quote extraction, image classification, media-size enforcement,
   and CP01 tracing.
 - Added a mock adapter with ordered handler delivery, deterministic outbox
-  records, group-JID validation, and typed fault modes.
+  records, translated-send timestamps, group-JID validation, pino logging,
+  and typed fault modes.
 - Added minimal synthetic fixtures only; no private messages or credentials.
 
 ## 5. Technical Decisions and Deviations
@@ -77,6 +79,10 @@ WhatsApp data.
 - **Scope note:** `baileys-client.ts` was intentionally not implemented because
   live connection lifecycle is outside the approved Phase 2 deliverables. This
   is planned scope sequencing, not a deviation from the design or architecture.
+- **Review correction:** Transport-specific errors now live under
+  `src/whatsapp/`, empty extended text is not classified as `TEXT`, and mock
+  call-index fault injection is supported. These corrections preserve the
+  approved Phase 2 boundary.
 
 ## 6. Deliverables
 
@@ -86,7 +92,7 @@ WhatsApp data.
 | Event normalizer | Complete | Text, quotes, images, wrappers, sorting and limits |
 | Mock adapter | Complete | Connect, inject, send, metadata and fault modes |
 | Synthetic fixtures | Complete | 11 JSON events and two binary media fixtures |
-| Phase 2 tests | Complete | 9 focused tests covering success and failure paths |
+| Phase 2 tests | Complete | 11 focused tests covering success and failure paths |
 
 ## 7. Verification
 
@@ -104,6 +110,8 @@ git diff --check
 
 - **Passed:** Focused Phase 2 tests (9), full suite (17), typecheck, build,
   and diff check.
+- **Post-review retest:** Focused Phase 2 tests (11), full suite (19),
+  typecheck, and build passed after transport-boundary corrections.
 - **Failed:** None.
 - **Skipped / blocked:** Live Baileys connection and real Community checks
   were not run because they are outside Phase 2 and require operational
@@ -124,5 +132,7 @@ git diff --check
 
 ## 9. Commit and Documentation
 
-**Commit:** `adc8409` — Phase 2 implementation commit.
-**Related documentation:** This log and the Phase 2 QA report.
+**Commit:** `adc8409` — Phase 2 implementation; review corrections pending
+separate fix commit.
+**Related documentation:** This log, the Phase 2 QA report, and the
+transport-contract review fix log.

@@ -81,4 +81,24 @@ approved local acceptance criteria, with regression tests passing.
 
 # Retest History
 
-No retest required.
+## Retest — 2026-11-10
+
+**Build or commit under test:** Working tree after transport contract review
+**Status:** PASSED
+
+**Issues retested:**
+
+- CP01 assertion — Resolved; test verifies the emitted duration banner and
+  source timestamp metadata.
+- Empty extended text classification — Resolved; normalizes as `UNSUPPORTED`.
+- Mock fault coverage — Resolved; call-index injection and translated-send
+  timestamp are covered.
+
+**New issues:**
+
+- None.
+
+**Commands and evidence:** Focused Phase 2 suite passed 11 tests; full suite
+passed 19 tests; typecheck and build passed.
+
+**Notes:** The review corrections remain within the approved Phase 2 scope.

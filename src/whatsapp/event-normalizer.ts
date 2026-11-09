@@ -1,4 +1,4 @@
-import { WhatsAppInvalidInputError } from '../shared/errors.js';
+import { WhatsAppInvalidInputError } from './errors.js';
 import { PipelineTracer } from '../observability/telemetry.js';
 import type { NormalizedInboundMessage, SupportedMessageKind } from './adapter.js';
 
@@ -84,7 +84,7 @@ function normalizeMessage(
   let kind: SupportedMessageKind = 'UNSUPPORTED';
   let media: NormalizedInboundMessage['media'] = null;
 
-  if (text || stringValue(content.conversation) || extended) kind = 'TEXT';
+  if (text !== null) kind = 'TEXT';
   if (image) {
     const declaredLength = image.fileLength === undefined ? null : Number(image.fileLength);
     if (declaredLength !== null && (!Number.isFinite(declaredLength) || declaredLength > options.maxMediaBytes)) {
@@ -126,6 +126,9 @@ export function normalizeUpsert(
   mediaBuffers: Readonly<Record<string, Buffer>> = {},
   options: NormalizerOptions
 ): NormalizedInboundMessage[] {
+  if (!Number.isFinite(options.maxMediaBytes) || options.maxMediaBytes <= 0) {
+    throw new WhatsAppInvalidInputError('maxMediaBytes must be a positive finite number');
+  }
   if (!isRecord(rawUpsert) || !Array.isArray(rawUpsert.messages)) {
     throw new WhatsAppInvalidInputError('Invalid WhatsApp upsert payload');
   }
