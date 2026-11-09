@@ -1,5 +1,19 @@
 import { randomUUID } from 'node:crypto';
 
+export const PIPELINE_CHECKPOINTS = [
+  'CP01_INGEST_NORMALIZE',
+  'CP02_FIFO_WAIT',
+  'CP03_GATE_CHECKS',
+  'CP04_CONTEXT_ASSEMBLY',
+  'CP05_AI_PROCESS',
+  'CP06_VALIDATION',
+  'CP07_QUEUE_PERSIST',
+  'CP08_MSG_RECONSTRUCT',
+  'CP09_DISPATCH'
+] as const;
+
+export type PipelineCheckpoint = (typeof PIPELINE_CHECKPOINTS)[number];
+
 export type CheckpointRecord = Readonly<{
   name: string;
   durationUs: number;
@@ -62,6 +76,19 @@ export class PipelineTracer {
       details
     });
     throw new Error(`${name} failed: ${errorCode}`);
+  }
+
+  logRetryOrWarning(
+    checkpointName: string,
+    attempt: number,
+    maxAttempts: number,
+    errorReason: string,
+    backoffMs: number
+  ): void {
+    console.warn(
+      `[TRACE:${this.traceId}] [WARN] [${checkpointName}:RETRY] ` +
+        `Attempt ${attempt}/${maxAttempts} | reason=${errorReason} | nextRetryBackoffMs=${backoffMs}`
+    );
   }
 
   finalizeJourney(finalDispatchTimestampMs: number): JourneySummary {

@@ -9,10 +9,12 @@ User=suaraputra
 Group=suaraputra
 WorkingDirectory=/opt/suaraputra
 ExecStart=/usr/bin/node /opt/suaraputra/dist/src/app.js
+Environment="NODE_OPTIONS=--max-old-space-size=512"
 Restart=on-failure
 RestartSec=5s
 KillSignal=SIGTERM
 TimeoutStopSec=30s
+MemoryMax=800M
 Environment=NODE_ENV=production
 EnvironmentFile=-/opt/suaraputra/.env
 NoNewPrivileges=true
