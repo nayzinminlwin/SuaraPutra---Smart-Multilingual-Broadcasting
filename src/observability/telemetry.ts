@@ -27,6 +27,7 @@ export type JourneySummary = Readonly<{
   finalDispatchTimestampMs: number;
   totalPipelineUs: number;
   totalE2eWallMs: number;
+  checkpoints: readonly CheckpointRecord[];
 }>;
 
 type ActiveCheckpoint = { name: string; startedAt: bigint };
@@ -102,7 +103,8 @@ export class PipelineTracer {
       waSourceSentTimestampMs: this.waSourceSentTimestampMs,
       finalDispatchTimestampMs,
       totalPipelineUs,
-      totalE2eWallMs: finalDispatchTimestampMs - this.waSourceSentTimestampMs
+      totalE2eWallMs: finalDispatchTimestampMs - this.waSourceSentTimestampMs,
+      checkpoints: [...this.records]
     };
     console.log(`[TRACE:${this.traceId}] 🏁 [JOURNEY_SUMMARY]`, summary);
     return summary;

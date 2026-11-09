@@ -127,7 +127,7 @@ export class MessageIngestor {
         id: newId(), announcementId, announcementSeq: created.announcementSeq, sourceTimestampMs: message.timestampMs,
         languageCode: code, languageOrder: order, targetGroupJid: this.options.destinationGroups[code],
         payloadType: 'IMAGE_ONLY', mediaLocalPath, mediaMimeType: message.media?.mimeType ?? 'application/octet-stream',
-        idempotencyKey: `${announcementId}:${code}`
+        idempotencyKey: `${announcementId}:${code}:${this.options.destinationGroups[code]}`
       })));
       return created.id;
     });
