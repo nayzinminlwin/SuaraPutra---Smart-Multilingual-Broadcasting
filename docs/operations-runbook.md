@@ -3,7 +3,7 @@
 > **Status:** Planned Phase 7 Deliverable  
 > **Reference:** [`docs/project-plan.md`](./project-plan.md) (Phase 7) & [`docs/architecture.md`](./architecture.md)
 
-This runbook will be authored and verified during **Phase 7 (End-to-End Composition Root, Full Synthetic QA & Live BaileysWhatsAppAdapter Integration)** upon physical redONE SIM delivery and Oracle Cloud deployment.
+This runbook will be authored and verified during **Phase 7 (End-to-End Composition Root, Full Synthetic QA & Live BaileysWhatsAppAdapter Integration)** upon physical redONE SIM delivery and Google Cloud deployment.
 
 ---
 
@@ -21,7 +21,8 @@ This runbook will be authored and verified during **Phase 7 (End-to-End Composit
    - Reconciliation CLI / SQL queries for `uncertain` delivery jobs.
    - Startup crash recovery and orphaned lease handling.
    - Daily automated cleanup for cached media and retention pruning.
-4. **Oracle Cloud Infrastructure Deployment:**
-   - Ubuntu 24.04 LTS (ARM64) environment verification.
+4. **Google Cloud Infrastructure Deployment:**
+   - Google Cloud Compute Engine `e2-micro` (`suaraputra-server`) environment verification.
+   - Ubuntu 24.04 LTS (`x86_64`) runtime, 2 GB swap, and journald disk cap verification.
    - `systemd` service lifecycle (`suaraputra.service`).
    - Log rotation and monitoring with `pino`.
