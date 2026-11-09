@@ -73,9 +73,10 @@ WhatsApp data.
 - **Decision:** `fromMe` remains visible on the normalized DTO.
   **Rationale:** Phase 3 owns the five-gate filter, including self-echo
   prevention, while the normalized contract retains the source fact.
-- **Deviation:** No `baileys-client.ts` was added.
-  **Rationale:** The approved Phase 2 deliverables authorize the abstraction,
-  normalizer, and mock adapter; live connection lifecycle is a later scope.
+- **Deviation:** None.
+- **Scope note:** `baileys-client.ts` was intentionally not implemented because
+  live connection lifecycle is outside the approved Phase 2 deliverables. This
+  is planned scope sequencing, not a deviation from the design or architecture.
 
 ## 6. Deliverables
 
@@ -123,5 +124,5 @@ git diff --check
 
 ## 9. Commit and Documentation
 
-**Commit:** To be created after staged-scope review.
+**Commit:** `adc8409` — Phase 2 implementation commit.
 **Related documentation:** This log and the Phase 2 QA report.
