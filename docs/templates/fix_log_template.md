@@ -1,8 +1,8 @@
-Save fix logs in: `docs/fix-logs/`
+Save in: `docs/logs/fixes/`
 
-File naming convention: `YYYY-MM-DD_FIX_<Phase>_<Module>_<ShortDescription>.md`
-
-# Fix Log: [Phase Number / Name] — [Module or Defect]
+File naming convention: `YYYY-MM-DD_phase-0X-fix-<short-issue-slug>.md`
+
+# Fix Log: [Phase Number / Name] — [Module or Defect]
 
 **Date and time:** YYYY-MM-DD HH:MM
 **Agent:** [Agent name / model]
@@ -12,7 +12,7 @@ File naming convention: `YYYY-MM-DD_FIX_<Phase>_<Module>_<ShortDescription>.md`
 
 ## 1. Trigger
 
-- **QA report:** `[path/to/qa-report.md]`
+- **QA report:** `[../test/phase-0X-...-test.md]`
 - **Defect ID:** [BUG-XX]
 - **Severity:** [Critical / High / Medium / Low]
 - **Error summary:** _One-line description of the reported behavior._
@@ -72,7 +72,7 @@ _Explain the technical cause of the defect or why the refactor was necessary._
 
 ## 7. Ready for Independent Retest
 
-- [ ] Yes — Tester should append the retest to `[path/to/qa-report.md]`.
+- [ ] Yes — Tester should append the retest to `[../test/phase-0X-...-test.md]`.
 - [ ] No — Reason: [Explain the remaining blocker.]
 
 **Remaining risk:** [None or describe]
