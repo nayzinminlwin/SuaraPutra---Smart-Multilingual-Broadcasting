@@ -19,15 +19,17 @@ export class MigrationRunner {
       `);
       const applied = this.client.prepare('SELECT version FROM _migrations ORDER BY version')
         .all() as Array<{ version: string }>;
-      const version = '001_initial_schema';
-      if (applied.some((row) => row.version === version)) return;
-      const migrationPath = join(migrationDirectory, `${version}.sql`);
-      const sourceMigrationPath = join(process.cwd(), 'src', 'database', 'migrations', `${version}.sql`);
-      const sql = readFileSync(existsSync(migrationPath) ? migrationPath : sourceMigrationPath, 'utf8');
-      this.client.transaction(() => {
-        this.client.exec(sql);
-        this.client.prepare('INSERT INTO _migrations (version) VALUES (?)').run(version);
-      });
+      const migrations = ['001_initial_schema', '002_delivery_attempts'];
+      for (const version of migrations) {
+        if (applied.some((row) => row.version === version)) continue;
+        const migrationPath = join(migrationDirectory, `${version}.sql`);
+        const sourceMigrationPath = join(process.cwd(), 'src', 'database', 'migrations', `${version}.sql`);
+        const sql = readFileSync(existsSync(migrationPath) ? migrationPath : sourceMigrationPath, 'utf8');
+        this.client.transaction(() => {
+          this.client.exec(sql);
+          this.client.prepare('INSERT INTO _migrations (version) VALUES (?)').run(version);
+        });
+      }
     } catch (error) {
       throw new MigrationError('SQLite migration failed', { cause: error });
     }

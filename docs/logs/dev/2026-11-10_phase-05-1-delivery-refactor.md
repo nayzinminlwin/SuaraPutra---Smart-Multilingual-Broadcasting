@@ -96,3 +96,43 @@ follow-up items here as the phase progresses.
 
 **Commit:** Not committed  
 **Related documentation:** Consolidated Phase 5.1 fix and test logs.
+
+---
+
+## Partition A Update — Delivery Attempt Persistence
+
+**Date:** 2026-11-10 22:48
+**Status:** Complete
+
+**Files created:**
+
+- `src/database/migrations/002_delivery_attempts.sql`
+- `src/database/repositories/delivery-attempt.repo.ts`
+
+**Files modified:**
+
+- `src/database/migrator.ts`
+- `src/shared/types.ts`
+- `tests/unit/phase1-database.test.ts`
+
+**Implementation summary:**
+
+- Added an additive migration for durable `delivery_attempts` history linked
+  to the stable `delivery_jobs` row.
+- Added unique `(delivery_job_id, attempt_number)` enforcement and operational
+  indexes.
+- Added typed repository methods to start, complete as sent, complete as
+  failed, complete as uncertain, and list attempts.
+- Extended the migration runner to apply ordered migrations while preserving
+  already-applied versions.
+- Added clean-install and upgrade-path tests, duplicate-attempt protection,
+  closed-attempt protection, and attempt-history assertions.
+
+**Partition verification:**
+
+- `npm run typecheck` passed.
+- `npm test -- tests/unit/phase1-database.test.ts` passed: 8 tests.
+- `git diff --check` passed.
+
+**Remaining:** Dispatcher integration and retry-attempt creation are reserved
+for Partition B and later. The stable delivery-job behavior is unchanged.

@@ -17,6 +17,8 @@ export type DeliveryStatus =
   | 'uncertain'
   | 'failed_permanent'
   | 'cancelled';
+export type DeliveryAttemptStatus = 'started' | 'sent' | 'failed' | 'uncertain';
+export type DeliveryAttemptFailureKind = 'transient' | 'ambiguous' | 'permanent' | 'invalid' | null;
 export type ValidationStatus = 'passed' | 'failed';
 export type SourceLinkRole = 'primary' | 'quoted' | 'window_context';
 export type EventLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
@@ -94,4 +96,20 @@ export type DeliveryJob = DeliveryJobInput & {
   createdAt: string;
   sentAt: string | null;
   updatedAt: string;
+};
+
+export interface DeliveryAttemptInput {
+  id: string;
+  deliveryJobId: string;
+  attemptNumber: number;
+}
+
+export type DeliveryAttempt = DeliveryAttemptInput & {
+  status: DeliveryAttemptStatus;
+  failureKind: DeliveryAttemptFailureKind;
+  errorCode: string | null;
+  errorMessage: string | null;
+  outgoingMessageId: string | null;
+  startedAt: string;
+  completedAt: string | null;
 };

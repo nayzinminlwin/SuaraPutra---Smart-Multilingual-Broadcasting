@@ -72,3 +72,30 @@ defect.
 
 **Commit:** Not committed  
 **Related documentation:** Consolidated Phase 5.1 development and test logs.
+
+---
+
+## Partition A Update — Delivery Attempt Persistence
+
+**Date:** 2026-11-10 22:48
+**Status:** Complete
+
+**Correction:** Added durable delivery-attempt history as an additive schema
+change instead of creating new delivery jobs for retries.
+
+**Root cause addressed:** Phase 5 had no durable operation-level record
+linking retry activity to the stable delivery job.
+
+**Files modified or created:**
+
+- `src/database/migrations/002_delivery_attempts.sql`
+- `src/database/repositories/delivery-attempt.repo.ts`
+- `src/database/migrator.ts`
+- `src/shared/types.ts`
+- `tests/unit/phase1-database.test.ts`
+
+**Verification:** Type-check passed; database test suite passed with 8 tests,
+including empty migration, upgrade preservation, duplicate attempt rejection,
+and closed-attempt transition protection.
+
+**Independent retest:** Pending later Partition G QA review.

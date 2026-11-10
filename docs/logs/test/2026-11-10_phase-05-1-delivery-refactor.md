@@ -68,3 +68,36 @@ independent verification and append the evidence here.
 
 **Commit:** Not committed  
 **Related documentation:** Consolidated Phase 5.1 development and fix logs.
+
+---
+
+## Partition A Test Entry — Delivery Attempt Persistence
+
+**Date:** 2026-11-10 22:48
+**Status:** PASSED — focused developer verification; independent Phase 5.1
+QA sign-off remains pending
+
+**Scenarios:**
+
+| ID | Scenario | Expected result | Status |
+|---|---|---|---|
+| A-01 | Clean migration | `002_delivery_attempts` applies after the initial schema | PASS |
+| A-02 | Existing database upgrade | Existing delivery jobs remain intact | PASS |
+| A-03 | Attempt lifecycle | Started attempts close as failed, sent, or uncertain | PASS |
+| A-04 | Duplicate attempt number | Duplicate `(delivery_job_id, attempt_number)` is rejected | PASS |
+| A-05 | Closed attempt mutation | A closed attempt cannot be reopened | PASS |
+| A-06 | Attempt history | Multiple attempts remain queryable in order | PASS |
+
+**Commands:**
+
+```text
+npm run typecheck
+npm test -- tests/unit/phase1-database.test.ts
+git diff --check
+```
+
+**Results:** Type-check passed; 8 database tests passed; no failures or
+skipped checks for Partition A.
+
+**Limitations:** Retry orchestration does not yet create attempt rows. That is
+intentionally reserved for later Phase 5.1 partitions.
