@@ -72,7 +72,12 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     };
   }
 
-  function announcement(id: string, sourceId: string, timestampMs: number, payloadType: 'TEXT' | 'IMAGE_ONLY' = 'TEXT'): AnnouncementInput {
+  function announcement(
+    id: string,
+    sourceId: string,
+    timestampMs: number,
+    payloadType: 'TEXT' | 'IMAGE_CAPTION' | 'IMAGE_ONLY' = 'TEXT'
+  ): AnnouncementInput {
     return {
       id,
       primarySourceMessageId: sourceId,
@@ -201,6 +206,37 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     expect(readMedia).toHaveBeenCalledTimes(1);
     expect(dispatcher['mediaCache'].size).toBe(0);
     expect(harness.adapter.getSentMessages()).toHaveLength(4);
+  });
+
+  it('reconstructs image captions and preserves the translated caption', async () => {
+    const harness = createHarness();
+    const mediaPath = join(harness.directory, 'caption.jpg');
+    writeFileSync(mediaPath, Buffer.from('synthetic caption image'));
+    persist(harness, announcement('caption', 'source-caption', 1000, 'IMAGE_CAPTION'), mediaPath);
+
+    await new DeliveryDispatcher({ adapter: harness.adapter, queue: harness.queue, pacingMs: 0 }).dispatchOnce();
+
+    expect(harness.adapter.getSentMessages()[0]?.payload).toMatchObject({
+      type: 'IMAGE',
+      caption: 'Translation caption ms'
+    });
+  });
+
+  it('keeps queued work untouched when the delivery kill switch is active', async () => {
+    const harness = createHarness();
+    persist(harness, announcement('paused', 'source-paused', 1000));
+    const dispatcher = new DeliveryDispatcher({
+      adapter: harness.adapter,
+      queue: harness.queue,
+      pacingMs: 0,
+      killSwitch: true
+    });
+
+    expect(await dispatcher.dispatchOnce()).toBe('paused');
+    expect(harness.adapter.getSentMessages()).toHaveLength(0);
+    expect(harness.client.database.prepare(`
+      SELECT COUNT(*) AS count FROM delivery_jobs WHERE status = 'pending'
+    `).get()).toEqual({ count: 4 });
   });
 
   it('retries only the transiently failed language destination', async () => {

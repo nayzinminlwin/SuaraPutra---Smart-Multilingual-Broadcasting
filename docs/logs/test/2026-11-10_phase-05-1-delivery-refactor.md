@@ -255,3 +255,38 @@ or skipped checks for Partition F.
 
 **Limitations:** Full regression and independent QA sign-off remain pending;
 final Phase 5.1 audit is assigned to Partition G.
+
+---
+
+## Partition G Test Entry — Regression, Integration, and Documentation
+
+**Date:** 2026-11-11 01:04
+**Status:** PASSED — final Phase 5.1 verification
+
+| ID | Scenario | Expected result | Status |
+|---|---|---|---|
+| G-01 | Full Phase 1–5 regression | Existing suite remains green | PASS |
+| G-02 | Migration and attempt history | Upgrade and lineage evidence retained | PASS |
+| G-03 | Destination-aware FIFO | Active same-target barriers and independent progress hold | PASS |
+| G-04 | Image-caption reconstruction | Original image and translated caption are forwarded | PASS |
+| G-05 | Retry policy and logging | 0–3 second bounds and safe events are verified | PASS |
+| G-06 | Recovery lifecycle | Startup, periodic scheduling, failure logging, and shutdown are verified | PASS |
+| G-07 | Kill switch | Queued work remains pending and adapter is not called | PASS |
+| G-08 | Documentation and scope | Audit, plan, and consolidated logs are complete | PASS |
+
+**Commands:**
+
+```text
+npm run build
+npm run lint
+npm test
+git diff --check
+```
+
+**Results:** 6 test files and 54 tests passed. Build, lint, and diff checks
+passed. No skipped checks, live WhatsApp calls, credentials, private media,
+or production data were used.
+
+**Release recommendation:** Phase 5.1 is complete for the current delivery
+module. Proceed to Phase 6 only with composition-root scheduler wiring and
+graceful shutdown.

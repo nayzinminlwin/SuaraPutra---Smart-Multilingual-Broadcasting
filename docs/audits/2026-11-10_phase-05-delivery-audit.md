@@ -4,7 +4,7 @@
 **Audited commit:** `9473d4b` — `feat(phase-05/delivery): add persistent FIFO dispatcher`  
 **Scope:** Phase 5 delivery queue, routing, retry policy, dispatcher, telemetry,
 and recovery implementation  
-**Status:** Audit findings documented; remediation not yet implemented
+**Status:** Remediated by Phase 5.1; final retest appended below
 
 ## 1. Audit References
 
@@ -260,3 +260,48 @@ be resolved before Phase 6 live composition or delivery validation.
 
 This document records findings and proposed remedies only. It does not modify
 source code or change the approved architecture.
+
+---
+
+## Phase 5.1 Remediation Retest
+
+**Retest date:** 2026-11-11
+**Commits under test:** `155931d` through `fcd35da`
+**Scope:** Phase 5.1 Partitions A–F, final Partition G regression and
+documentation gate
+
+| Finding | Retest result | Evidence |
+|---|---|---|
+| AUD-01 | Remediated | Failed checkpoints close safely; failed journeys cannot finalize |
+| AUD-02 | Remediated under approved per-destination policy | Same-target active barriers block; terminal/uncertain states do not |
+| AUD-03 | Remediated | Complete validated language set required before queue insertion |
+| AUD-04 | Remediated | Deterministic 0–3 second jitter bounds tested |
+| AUD-05 | Remediated | Durable safe retry decision events and retry telemetry added |
+| AUD-06 | Remediated at lifecycle boundary | Startup/periodic scheduler and shutdown cleanup tested |
+| AUD-07 | Remediated | Negative-path, image-caption, kill-switch, recovery, and regression tests added |
+
+**Architecture decision:** Phase 5.1 uses destination-aware FIFO rather than
+the stronger global barrier recommended in the original audit. Active
+`pending`, `sending`, and eligible `retry_wait` work blocks later work only
+for the same trusted target JID. `uncertain` is held for reconciliation and
+does not block other destinations. This is recorded in the approved
+[Phase 5.1 plan](../phase-05-1-plan.md) and is an intentional weakening of
+global chronological ordering to preserve independent language progress.
+
+**Verification evidence:**
+
+- `npm run build` passed.
+- `npm run lint` passed.
+- `npm test` passed: 6 test files, 54 tests.
+- `git diff --check` passed.
+- No live WhatsApp, credentials, private media, or production data used.
+
+**Residual limitation:** The scheduler is composition-boundary ready and
+deterministically tested, but the Phase 6 application composition root does
+not yet exist, so live process startup wiring remains a Phase 6 integration
+task. This is explicitly permitted by the Phase 5.1 completion gate.
+
+**Final assessment:** Phase 5.1 remediation satisfies the approved
+completion gate for the current modular delivery boundaries. Proceed to Phase
+6 only after its composition root owns scheduler startup and graceful
+shutdown.

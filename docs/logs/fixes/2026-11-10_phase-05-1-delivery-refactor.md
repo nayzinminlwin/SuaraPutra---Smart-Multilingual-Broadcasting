@@ -102,6 +102,32 @@ and closed-attempt transition protection.
 
 ---
 
+## Partition G Update — Regression, Integration, and Documentation
+
+**Date:** 2026-11-11 01:04
+**Status:** Complete
+
+**Findings retested:** AUD-01 through AUD-07.
+
+**Changes:**
+
+- Added final negative-path and integration-boundary assertions for
+  image-caption reconstruction and kill-switch behavior.
+- Updated the original Phase 5 audit with remediation evidence, the selected
+  destination-aware FIFO decision, and the remaining Phase 6 composition
+  limitation.
+- Confirmed all Phase 5.1 changes remain within the approved delivery scope.
+
+**Verification:** Full regression passed with 54 tests; build, lint, and
+diff checks passed.
+
+**Residual risk:** Scheduler startup and graceful shutdown require the Phase 6
+composition root; the scheduler itself is implemented and deterministic.
+
+**Independent retest:** Phase 5.1 completion evidence recorded in the QA log.
+
+---
+
 ## Partition F Update — Recovery Scheduling and Lifecycle Ownership
 
 **Date:** 2026-11-10 23:14

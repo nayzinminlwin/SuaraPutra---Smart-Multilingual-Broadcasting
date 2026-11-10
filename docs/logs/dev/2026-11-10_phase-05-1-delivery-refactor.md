@@ -313,3 +313,38 @@ later Phase 5.1 partitions.
 
 **Remaining:** Final regression, independent QA, and documentation audit are
 assigned to Partition G.
+
+---
+
+## Partition G Update — Regression, Integration, and Documentation
+
+**Date:** 2026-11-11 01:04
+**Status:** Complete
+
+**Files modified:**
+
+- `tests/unit/phase5-delivery-queue.test.ts`
+- `docs/audits/2026-11-10_phase-05-delivery-audit.md`
+- `docs/phase-05-1-plan.md`
+- Consolidated Phase 5.1 development, fix, and QA logs
+
+**Implementation and audit summary:**
+
+- Added final image-caption reconstruction and caption-preservation coverage.
+- Added kill-switch coverage proving queued work remains durable and unsent.
+- Retested migrations, attempt lineage, checkpoint cleanup, FIFO policy,
+  validation boundaries, retry bounds/logging, and recovery scheduling.
+- Recorded the intentional per-destination FIFO decision and its residual
+  Phase 6 composition-root wiring dependency in the audit.
+- Marked the standalone Phase 5.1 plan implemented after the completion gate.
+
+**Verification:**
+
+- `npm run build` passed.
+- `npm run lint` passed.
+- Full regression suite passed: 6 test files, 54 tests.
+- `git diff --check` passed.
+
+**Completion decision:** Phase 5.1 is complete for the current modular
+delivery boundaries. Phase 6 must wire scheduler startup and graceful
+shutdown from its composition root.
