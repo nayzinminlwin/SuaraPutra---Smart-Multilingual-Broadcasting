@@ -348,3 +348,24 @@ assigned to Partition G.
 **Completion decision:** Phase 5.1 is complete for the current modular
 delivery boundaries. Phase 6 must wire scheduler startup and graceful
 shutdown from its composition root.
+
+---
+
+## D–G Follow-up Audit Update
+
+**Date:** 2026-11-11 01:12
+**Status:** Complete
+
+**Findings and fixes:**
+
+- Closed CP07 when queue validation or persistence fails.
+- Separated post-send journey finalization from delivery failure handling.
+- Preserved empty captions for IMAGE_ONLY queue payloads while retaining
+  validation for text and captioned images.
+- Logged zero-work recovery checks for complete periodic observability.
+
+**Verification:** Focused delivery tests passed with 21 tests; final full
+regression passed with 57 tests; build, lint, and diff checks passed.
+
+**Result:** D–G follow-up audit found no remaining implementation anomaly
+inside the current delivery boundary.

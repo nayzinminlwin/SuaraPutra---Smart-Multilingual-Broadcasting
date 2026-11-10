@@ -43,7 +43,7 @@ export class DeliveryQueue {
     const tracer = input.tracer;
     tracer?.startCheckpoint('CP07_QUEUE_PERSIST');
     try {
-      this.validateTranslations(input.translations);
+      this.validateTranslations(input.translations, input.announcement.payloadType);
       const result = this.database.transaction(() => {
         const announcement = this.announcements.createWithSources(
           { ...input.announcement, status: 'processing' },
@@ -68,13 +68,13 @@ export class DeliveryQueue {
       return result;
     } catch (error) {
       if (tracer) {
-        console.error(`[TRACE:${tracer.traceId}] [CP07_QUEUE_PERSIST:FAILED]`, {
-          announcementId: input.announcement.id,
-          error: error instanceof Error ? error.message : 'unknown'
-        });
-        if (tracer.checkpoints.some((checkpoint) => checkpoint.name === 'CP07_QUEUE_PERSIST')) {
-          throw error;
-        }
+        tracer.recordCheckpointFailure(
+          'CP07_QUEUE_PERSIST',
+          error instanceof Error ? error.name : 'QUEUE_PERSISTENCE_ERROR',
+          {
+            announcementId: input.announcement.id
+          }
+        );
       }
       throw error;
     }
@@ -272,13 +272,11 @@ export class DeliveryQueue {
 
   recoverOrphanedJobs(): number {
     const recovered = this.jobs.recoverExpiredSending();
-    if (recovered > 0) {
-      this.events.append({
-        eventType: 'DELIVERY_LEASE_RECOVERY',
-        level: 'CRITICAL',
-        details: { recovered, outcome: 'uncertain', automaticRetry: false }
-      });
-    }
+    this.events.append({
+      eventType: 'DELIVERY_LEASE_RECOVERY',
+      level: recovered > 0 ? 'CRITICAL' : 'DEBUG',
+      details: { recovered, outcome: recovered > 0 ? 'uncertain' : 'none', automaticRetry: false }
+    });
     return recovered;
   }
 
@@ -293,7 +291,8 @@ export class DeliveryQueue {
   }
 
   private validateTranslations(
-    translations: QueueAnnouncementInput['translations']
+    translations: QueueAnnouncementInput['translations'],
+    payloadType: MessageKind
   ): void {
     const expected = new Set(['ms', 'en', 'zh-CN', 'ta']);
     const seen = new Set<string>();
@@ -305,7 +304,10 @@ export class DeliveryQueue {
       if (translation.validationStatus !== 'passed') {
         throw new Error(`Translation ${translation.languageCode} did not pass validation`);
       }
-      if (translation.content.trim().length === 0 || translation.content.length > 4096) {
+      if (typeof translation.content !== 'string' || translation.content.length > 4096) {
+        throw new Error(`Translation ${translation.languageCode} has invalid content length`);
+      }
+      if (payloadType !== 'IMAGE_ONLY' && translation.content.trim().length === 0) {
         throw new Error(`Translation ${translation.languageCode} has invalid content length`);
       }
     }

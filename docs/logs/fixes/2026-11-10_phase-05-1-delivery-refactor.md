@@ -154,6 +154,33 @@ startup recovery, interval scheduling, shutdown cleanup, and failure logging.
 
 ---
 
+## D–G Follow-up Audit Update
+
+**Date:** 2026-11-11 01:12
+**Status:** Complete
+
+**Findings:** Four connected D–G anomalies were found during the follow-up
+audit: active CP07 leakage on validation errors, post-send telemetry errors
+being routed through delivery failure handling, an IMAGE_ONLY empty-caption
+validation mismatch, and missing zero-work recovery evidence.
+
+**Root causes:** The queue catch path checked completed checkpoint records,
+dispatcher error handling covered telemetry finalization too broadly, the
+validation predicate did not branch on payload kind, and recovery events were
+conditional on recovered rows.
+
+**Fixes:** Closed CP07 explicitly, moved journey finalization outside the
+transport failure transaction, made IMAGE_ONLY captions optional, and emitted
+safe recovery events for every check.
+
+**Verification:** Focused tests passed (21); full regression passed (57);
+build, lint, and diff checks passed.
+
+**Residual risk:** Scheduler lifecycle startup remains a Phase 6 composition
+root responsibility, as already documented.
+
+---
+
 ## Partition E Update — Retry Policy, Jitter, and Required Logging
 
 **Date:** 2026-11-10 23:11

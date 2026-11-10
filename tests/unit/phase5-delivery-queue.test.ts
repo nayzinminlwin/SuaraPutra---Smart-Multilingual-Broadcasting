@@ -336,10 +336,15 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     const value = announcement('invalid-translations', 'source-invalid-translations', 1000);
     const sources = new SourceMessageRepository(harness.client);
     sources.insert(source(value.primarySourceMessageId, value.sourceTimestampMs));
+    const tracer = new PipelineTracer({
+      messageId: value.primarySourceMessageId,
+      waSourceSentTimestampMs: value.sourceTimestampMs
+    });
 
     expect(() => harness.queue.persistAnnouncement({
       announcement: value,
       sources: [{ sourceMessageId: value.primarySourceMessageId, role: 'primary' }],
+      tracer,
       translations: [{
         id: 'invalid-ms',
         languageCode: 'ms',
@@ -348,8 +353,33 @@ describe('Phase 5 delivery queue and dispatcher', () => {
         validationErrorsJson: '["missing URL"]'
       }]
     })).toThrow('did not pass validation');
+    expect(tracer.checkpoints).toEqual([
+      expect.objectContaining({ name: 'CP07_QUEUE_PERSIST', outcome: 'failed' })
+    ]);
     expect(harness.client.database.prepare('SELECT COUNT(*) AS count FROM delivery_jobs').get())
       .toEqual({ count: 0 });
+  });
+
+  it('allows empty captions for image-only queue payloads', () => {
+    const harness = createHarness();
+    const value = announcement('image-only-empty', 'source-image-only-empty', 1000, 'IMAGE_ONLY');
+    const sources = new SourceMessageRepository(harness.client);
+    sources.insert(source(value.primarySourceMessageId, value.sourceTimestampMs));
+
+    const result = harness.queue.persistAnnouncement({
+      announcement: value,
+      sources: [{ sourceMessageId: value.primarySourceMessageId, role: 'primary' }],
+      translations: (['ms', 'en', 'zh-CN', 'ta'] as const).map((languageCode, index) => ({
+        id: `${value.id}-${index}`,
+        languageCode,
+        content: '',
+        validationStatus: 'passed' as const
+      })),
+      mediaLocalPath: 'synthetic-image.jpg',
+      mediaMimeType: 'image/jpeg'
+    });
+
+    expect(result.jobs).toHaveLength(4);
   });
 
   it('converts invalid persisted payloads to permanent failures without sending', async () => {
@@ -438,6 +468,54 @@ describe('Phase 5 delivery queue and dispatcher', () => {
       { status: 'failed', attempt_number: 1 },
       { status: 'sent', attempt_number: 2 }
     ]);
+  });
+
+  it('does not convert post-send journey finalization errors into delivery failures', async () => {
+    const harness = createHarness();
+    persist(harness, announcement('finalize-error', 'source-finalize-error', 1000));
+    const tracer = new PipelineTracer({
+      messageId: 'finalize-error',
+      waSourceSentTimestampMs: 1000
+    });
+    vi.spyOn(tracer, 'finalizeJourney').mockImplementation(() => {
+      throw new Error('synthetic telemetry failure');
+    });
+    const dispatcher = new DeliveryDispatcher({
+      adapter: harness.adapter,
+      queue: harness.queue,
+      pacingMs: 0,
+      tracerForJob: (job) => job.languageOrder === 4 ? tracer : undefined
+    });
+
+    await dispatcher.dispatchUntilIdle(3);
+    await expect(dispatcher.dispatchOnce()).rejects.toThrow('synthetic telemetry failure');
+    expect(harness.client.database.prepare(`
+      SELECT status FROM delivery_jobs
+      WHERE announcement_id = 'finalize-error' AND language_order = 4
+    `).get()).toEqual({ status: 'sent' });
+    expect(harness.client.database.prepare(`
+      SELECT status FROM delivery_attempts
+      WHERE delivery_job_id = (
+        SELECT id FROM delivery_jobs
+        WHERE announcement_id = 'finalize-error' AND language_order = 4
+      )
+    `).get()).toEqual({ status: 'sent' });
+  });
+
+  it('records a successful recovery check when no leases are orphaned', () => {
+    const harness = createHarness();
+    expect(harness.queue.recoverOrphanedJobs()).toBe(0);
+    expect(harness.client.database.prepare(`
+      SELECT details_json FROM event_logs
+      WHERE event_type = 'DELIVERY_LEASE_RECOVERY'
+      ORDER BY id DESC LIMIT 1
+    `).get()).toMatchObject({
+      details_json: JSON.stringify({
+        recovered: 0,
+        outcome: 'none',
+        automaticRetry: false
+      })
+    });
   });
 
   it('runs recovery before scheduling and clears its interval on shutdown', () => {

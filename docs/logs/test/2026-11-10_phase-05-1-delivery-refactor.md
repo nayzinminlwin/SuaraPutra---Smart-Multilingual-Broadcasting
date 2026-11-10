@@ -290,3 +290,34 @@ or production data were used.
 **Release recommendation:** Phase 5.1 is complete for the current delivery
 module. Proceed to Phase 6 only with composition-root scheduler wiring and
 graceful shutdown.
+
+---
+
+## D–G Follow-up Audit Test Entry
+
+**Date:** 2026-11-11 01:12
+**Status:** PASSED — follow-up audit after Phase 5.1 closure
+
+| ID | Scenario | Expected result | Status |
+|---|---|---|---|
+| QA-DG-01 | Queue validation failure | CP07 closes as failed | PASS |
+| QA-DG-02 | Post-send telemetry failure | Sent job and attempt remain `sent` | PASS |
+| QA-DG-03 | IMAGE_ONLY empty caption | Four queue jobs persist successfully | PASS |
+| QA-DG-04 | Zero-work recovery check | Safe recovery event records count zero | PASS |
+| QA-DG-05 | Full regression | No neighboring Phase 1–5 regression | PASS |
+
+**Commands:**
+
+```text
+npm run build
+npm run lint
+npm test
+git diff --check
+```
+
+**Results:** Focused delivery tests passed (21); full suite passed with
+6 test files and 57 tests. Build, lint, and diff checks passed.
+
+**Final QA assessment:** D–G follow-up findings are remediated. No unresolved
+implementation anomaly remains in the current delivery module. Phase 6 must
+own scheduler startup and graceful shutdown.

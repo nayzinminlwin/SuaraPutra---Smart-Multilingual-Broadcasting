@@ -292,7 +292,7 @@ global chronological ordering to preserve independent language progress.
 
 - `npm run build` passed.
 - `npm run lint` passed.
-- `npm test` passed: 6 test files, 54 tests.
+- `npm test` passed: 6 test files, 57 tests.
 - `git diff --check` passed.
 - No live WhatsApp, credentials, private media, or production data used.
 
@@ -305,3 +305,45 @@ task. This is explicitly permitted by the Phase 5.1 completion gate.
 completion gate for the current modular delivery boundaries. Proceed to Phase
 6 only after its composition root owns scheduler startup and graceful
 shutdown.
+
+---
+
+## D–G Follow-up Audit
+
+**Audit date:** 2026-11-11
+**Scope:** Partitions D–G after the initial Phase 5.1 closure
+
+The broader review found four connected anomalies:
+
+1. Queue validation failures could leave CP07 active because the catch path
+   inspected completed records instead of closing the active checkpoint.
+2. A telemetry journey-finalization exception occurred after the send and
+   durable `sent` transition, but the dispatcher catch path could classify it
+   as a delivery failure and attempt an invalid second terminal transition.
+3. The plan's IMAGE_ONLY empty-caption exception was not represented by the
+   queue validation predicate.
+4. Recovery emitted no success event when zero orphaned leases were found,
+   weakening periodic operational evidence.
+
+**Remediation:**
+
+- CP07 now closes with a failed checkpoint record on queue validation or
+  persistence errors.
+- Journey finalization runs after the durable send transition and is reported
+  as telemetry failure without changing the sent job or attempt.
+- IMAGE_ONLY queue payloads may carry empty captions while text and
+  captioned-image payloads remain non-empty and length-bounded.
+- Every recovery check emits a safe event with the recovered count; zero-work
+  checks use DEBUG and recovered leases remain CRITICAL.
+
+**Follow-up verification:**
+
+- Focused delivery tests passed: 21 tests.
+- Full regression passed: 6 test files, 57 tests.
+- Build and lint passed.
+- `git diff --check` passed.
+
+**Follow-up assessment:** No unresolved D–G implementation anomaly remains
+within the current delivery boundary. The only intentional integration
+dependency is Phase 6 composition-root ownership of scheduler startup and
+graceful shutdown.

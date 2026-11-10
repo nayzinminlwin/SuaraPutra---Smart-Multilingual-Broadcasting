@@ -41,6 +41,7 @@ export class DeliveryDispatcher {
     const tracer = this.options.tracerForJob?.(job);
     let attempt: { id: string; deliveryJobId: string; attemptNumber: number } | null = null;
     const dispatchCheckpoint = `CP09_DISPATCH_${job.languageCode}`;
+    let acknowledgedAtIso: string | null = null;
     try {
       attempt = this.options.queue.startAttempt(job.id, job.attempts);
       tracer?.startCheckpoint('CP08_MSG_RECONSTRUCT');
@@ -58,9 +59,8 @@ export class DeliveryDispatcher {
       this.options.queue.markAttemptSent(attempt.id, job.id, result.outgoingMessageId);
       if (job.languageOrder === 4) {
         this.mediaCache.delete(job.announcementId);
-        tracer?.finalizeJourney(Date.parse(result.acknowledgedAtIso));
+        acknowledgedAtIso = result.acknowledgedAtIso;
       }
-      return 'sent';
     } catch (error) {
       const errorCode = error instanceof Error ? error.name : 'DELIVERY_ERROR';
       tracer?.recordCheckpointFailure('CP08_MSG_RECONSTRUCT', errorCode, { jobId: job.id });
@@ -108,6 +108,18 @@ export class DeliveryDispatcher {
       if (job.languageOrder === 4) this.mediaCache.delete(job.announcementId);
       return 'failed';
     }
+    if (acknowledgedAtIso !== null) {
+      try {
+        tracer?.finalizeJourney(Date.parse(acknowledgedAtIso));
+      } catch (error) {
+        console.error('[DELIVERY_JOURNEY_FINALIZATION_FAILED]', {
+          jobId: job.id,
+          errorCode: error instanceof Error ? error.name : 'JOURNEY_FINALIZATION_ERROR'
+        });
+        throw error;
+      }
+    }
+    return 'sent';
   }
 
   async dispatchUntilIdle(maxJobs = Number.MAX_SAFE_INTEGER): Promise<number> {
