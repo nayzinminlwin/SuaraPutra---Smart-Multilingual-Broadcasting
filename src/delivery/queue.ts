@@ -127,6 +127,31 @@ export class DeliveryQueue {
     });
   }
 
+  recordRetryDecision(
+    job: DeliveryJob,
+    decision: {
+      status: 'retry_wait' | 'uncertain' | 'failed_permanent';
+      code: string;
+      backoffMs?: number;
+    },
+    attemptId?: string
+  ): void {
+    this.events.append({
+      eventType: 'DELIVERY_RETRY_DECISION',
+      relatedEntityType: 'delivery_job',
+      relatedEntityId: job.id,
+      level: decision.status === 'retry_wait' ? 'INFO' : 'WARN',
+      details: {
+        attemptId: attemptId ?? null,
+        attemptNumber: job.attempts,
+        maxAttempts: job.maxAttempts,
+        decision: decision.status,
+        errorCode: decision.code,
+        ...(decision.backoffMs === undefined ? {} : { backoffMs: decision.backoffMs })
+      }
+    });
+  }
+
   startAttempt(jobId: string, attemptNumber: number): { id: string; deliveryJobId: string; attemptNumber: number } {
     const attempt = this.attempts.start({
       id: randomUUID(),

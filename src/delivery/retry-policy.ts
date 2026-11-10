@@ -35,7 +35,7 @@ export class RetryPolicy {
 
     if (error instanceof WhatsAppTransientError && job.attempts < Math.min(job.maxAttempts, this.maxAttempts)) {
       const baseSeconds = Math.min(300, 5 * (2 ** Math.max(0, job.attempts - 1)));
-      const jitterMs = Math.floor(this.random() * 1000);
+      const jitterMs = Math.floor(this.random() * 3000);
       const backoffMs = baseSeconds * 1000 + jitterMs;
       return {
         status: 'retry_wait',

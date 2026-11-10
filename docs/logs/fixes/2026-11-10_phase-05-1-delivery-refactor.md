@@ -102,6 +102,31 @@ and closed-attempt transition protection.
 
 ---
 
+## Partition E Update — Retry Policy, Jitter, and Required Logging
+
+**Date:** 2026-11-10 23:11
+**Status:** Complete
+
+**Findings addressed:** AUD-04 and AUD-05 — jitter was limited to 0–1
+seconds and retry decisions were not durably logged.
+
+**Root cause:** Retry policy used a one-second random range and the dispatcher
+only persisted the resulting job state, not the decision context.
+
+**Changes:**
+
+- Changed jitter calculation to a deterministic injectable 0–3 second range.
+- Added safe durable decision events for retryable, permanent, and uncertain
+  outcomes.
+- Added existing trace retry warnings for retryable decisions.
+
+**Verification:** Type-check and 14 focused delivery tests passed, including
+deterministic lower/upper jitter boundaries and safe event contents.
+
+**Independent retest:** Pending later Partition G QA review.
+
+---
+
 ## Partition D Update — Queue and Dispatcher Validation
 
 **Date:** 2026-11-10 23:02

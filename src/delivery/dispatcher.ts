@@ -67,6 +67,16 @@ export class DeliveryDispatcher {
       tracer?.recordCheckpointFailure(dispatchCheckpoint, errorCode, { jobId: job.id });
       if (tracer) console.error(`[TRACE:${tracer.traceId}] dispatch failed`, { jobId: job.id });
       const decision = this.retryPolicy.decide(job, error);
+      this.options.queue.recordRetryDecision(job, decision, attempt?.id);
+      if (decision.status === 'retry_wait') {
+        tracer?.logRetryOrWarning(
+          'CP09_DISPATCH',
+          job.attempts,
+          job.maxAttempts,
+          decision.code,
+          decision.backoffMs ?? 0
+        );
+      }
       if (!attempt) {
         this.options.queue.markFailure(
           job.id,

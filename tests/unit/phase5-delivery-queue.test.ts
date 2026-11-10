@@ -14,6 +14,8 @@ import { DeliveryQueue } from '../../src/delivery/queue.js';
 import { MessageRouter } from '../../src/routing/message-router.js';
 import { MockWhatsAppAdapter } from '../../src/whatsapp/mock-adapter.js';
 import { PipelineTracer } from '../../src/observability/telemetry.js';
+import { RetryPolicy } from '../../src/delivery/retry-policy.js';
+import { WhatsAppTransientError } from '../../src/whatsapp/errors.js';
 import type { AnnouncementInput, SourceMessageInput } from '../../src/shared/types.js';
 
 const destinations = {
@@ -217,6 +219,46 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     expect(faultless.getSentMessages()).toHaveLength(1);
     expect(harness.client.database.prepare("SELECT status FROM delivery_jobs WHERE language_code = 'ta'").get())
       .toEqual({ status: 'sent' });
+  });
+
+  it('uses deterministic 0-3 second jitter within the approved backoff bounds', () => {
+    const policy = new RetryPolicy({ random: () => 0 });
+    expect(policy.decide({ attempts: 1, maxAttempts: 5 }, new WhatsAppTransientError('temporary')).backoffMs)
+      .toBe(5000);
+    expect(new RetryPolicy({ random: () => 0.999999 }).decide(
+      { attempts: 1, maxAttempts: 5 }, new WhatsAppTransientError('temporary')
+    ).backoffMs).toBe(7999);
+    expect(new RetryPolicy({ random: () => 0 }).decide(
+      { attempts: 2, maxAttempts: 5 }, new WhatsAppTransientError('temporary')
+    ).backoffMs).toBe(10000);
+    expect(new RetryPolicy({ random: () => 0.999999 }).decide(
+      { attempts: 3, maxAttempts: 5 }, new WhatsAppTransientError('temporary')
+    ).backoffMs).toBe(22999);
+    expect(new RetryPolicy({ random: () => 0 }).decide(
+      { attempts: 4, maxAttempts: 5 }, new WhatsAppTransientError('temporary')
+    ).backoffMs).toBe(40000);
+  });
+
+  it('records safe retry decision logs for retryable and terminal outcomes', async () => {
+    const harness = createHarness({ faultModesByTarget: { [destinations.ta]: 'TRANSIENT_ERROR' } });
+    persist(harness, announcement('retry-log', 'source-retry-log', 1000));
+    await new DeliveryDispatcher({ adapter: harness.adapter, queue: harness.queue, pacingMs: 0 }).dispatchUntilIdle();
+
+    const event = harness.client.database.prepare(`
+      SELECT event_type, details_json
+      FROM event_logs
+      WHERE event_type = 'DELIVERY_RETRY_DECISION'
+      ORDER BY id DESC LIMIT 1
+    `).get() as { event_type: string; details_json: string };
+    expect(event.event_type).toBe('DELIVERY_RETRY_DECISION');
+    expect(JSON.parse(event.details_json)).toMatchObject({
+      attemptNumber: 1,
+      maxAttempts: 5,
+      decision: 'retry_wait',
+      errorCode: 'TRANSIENT_SEND_FAILURE',
+      backoffMs: expect.any(Number)
+    });
+    expect(JSON.parse(event.details_json)).not.toHaveProperty('message');
   });
 
   it('holds ambiguous sends as uncertain and recovers expired leases as uncertain', async () => {

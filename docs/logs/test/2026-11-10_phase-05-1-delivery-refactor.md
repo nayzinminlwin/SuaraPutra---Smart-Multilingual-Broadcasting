@@ -194,3 +194,34 @@ failures or skipped checks for Partition D.
 
 **Limitations:** Independent QA sign-off remains pending; retry jitter,
 structured retry logging, and recovery scheduling are later partitions.
+
+---
+
+## Partition E Test Entry — Retry Policy, Jitter, and Required Logging
+
+**Date:** 2026-11-10 23:11
+**Status:** PASSED — focused developer verification; independent Phase 5.1
+QA sign-off remains pending
+
+| ID | Scenario | Expected result | Status |
+|---|---|---|---|
+| E-01 | Attempt 1 jitter | Backoff is bounded to 5–8 seconds | PASS |
+| E-02 | Attempt 2 jitter | Backoff is bounded to 10–13 seconds | PASS |
+| E-03 | Attempt 3 jitter | Backoff is bounded to 20–23 seconds | PASS |
+| E-04 | Attempt 4 jitter | Backoff is bounded to 40–43 seconds | PASS |
+| E-05 | Retry decision event | Safe decision record includes attempt and backoff | PASS |
+| E-06 | Sensitive log exclusion | Event omits message content | PASS |
+
+**Commands:**
+
+```text
+npm run typecheck
+npm test -- tests/unit/phase5-delivery-queue.test.ts
+git diff --check
+```
+
+**Results:** Type-check passed; 14 focused delivery tests passed; no failures
+or skipped checks for Partition E.
+
+**Limitations:** Full regression and independent QA sign-off remain pending;
+recovery scheduling is assigned to Partition F.

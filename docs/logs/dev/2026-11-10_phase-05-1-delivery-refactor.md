@@ -244,3 +244,35 @@ scheduling remain assigned to later Phase 5.1 partitions.
 
 **Remaining:** Retry jitter/logging and recovery scheduling remain assigned to
 later Phase 5.1 partitions.
+
+---
+
+## Partition E Update — Retry Policy, Jitter, and Required Logging
+
+**Date:** 2026-11-10 23:11
+**Status:** Complete
+
+**Files modified:**
+
+- `src/delivery/retry-policy.ts`
+- `src/delivery/dispatcher.ts`
+- `src/delivery/queue.ts`
+- `tests/unit/phase5-delivery-queue.test.ts`
+
+**Implementation summary:**
+
+- Expanded injectable retry jitter from 0–1 seconds to 0–3 seconds.
+- Preserved bounded exponential backoff and maximum-attempt enforcement.
+- Added safe `DELIVERY_RETRY_DECISION` event records containing attempt,
+  maximum attempts, decision, error code, and backoff only.
+- Added retry telemetry using the existing checkpoint convention.
+- Terminal and uncertain outcomes are logged as decisions without retry
+  messaging or sensitive payload content.
+
+**Verification:**
+
+- `npm run typecheck` passed.
+- Focused delivery tests passed: 14 tests.
+- `git diff --check` passed.
+
+**Remaining:** Recovery scheduling remains assigned to Partition F.
