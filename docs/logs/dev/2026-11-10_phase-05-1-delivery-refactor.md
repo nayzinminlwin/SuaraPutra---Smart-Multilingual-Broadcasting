@@ -171,3 +171,38 @@ for Partition B and later. The stable delivery-job behavior is unchanged.
 
 **Remaining:** Retry logging, FIFO policy, validation, and recovery scheduling
 remain assigned to later Phase 5.1 partitions.
+
+---
+
+## Partition C Update — Destination-aware FIFO
+
+**Date:** 2026-11-10 22:56
+**Status:** Complete
+
+**Files modified:**
+
+- `src/database/repositories/delivery-job.repo.ts`
+- `src/delivery/queue.ts`
+- `tests/unit/phase5-delivery-queue.test.ts`
+
+**Implementation summary:**
+
+- Added a per-target earlier-job barrier to polling and atomic claiming.
+- Active `pending`, `sending`, and eligible `retry_wait` jobs block later work
+  for the same trusted target JID.
+- `sent`, `failed_permanent`, `cancelled`, and `uncertain` jobs do not block
+  later work.
+- A future-ineligible retry wait does not prevent independent destinations
+  from progressing.
+- Added queue claim and delivery-job state-transition event records with safe
+  identifiers.
+- Preserved transactional claim behavior and stable delivery-job identity.
+
+**Verification:**
+
+- `npm run build` passed.
+- Focused Phase 5 and database tests passed: 18 tests.
+- `git diff --check` passed.
+
+**Remaining:** Payload validation, retry jitter/logging, and recovery
+scheduling remain assigned to later Phase 5.1 partitions.

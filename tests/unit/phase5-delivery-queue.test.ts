@@ -111,6 +111,80 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     ]);
   });
 
+  it('blocks a later job for the same destination behind active earlier work', () => {
+    const harness = createHarness();
+    persist(harness, announcement('first-fifo', 'source-first-fifo', 1000));
+    persist(harness, announcement('second-fifo', 'source-second-fifo', 2000));
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs
+      SET target_group_jid = ?
+      WHERE announcement_id IN ('first-fifo', 'second-fifo') AND language_code = 'ms'
+    `).run('shared-target@g.us');
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs SET status = 'sent'
+      WHERE language_code <> 'ms'
+    `).run();
+
+    expect(harness.queue.claimNext('fifo-worker')?.announcementId).toBe('first-fifo');
+    expect(harness.queue.claimNext('fifo-worker')).toBeNull();
+  });
+
+  it('allows another destination to progress while one destination is blocked', () => {
+    const harness = createHarness();
+    persist(harness, announcement('first-independent', 'source-first-independent', 1000));
+    persist(harness, announcement('second-independent', 'source-second-independent', 2000));
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs
+      SET target_group_jid = ?
+      WHERE announcement_id IN ('first-independent', 'second-independent') AND language_code = 'ms'
+    `).run('shared-target@g.us');
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs
+      SET status = 'retry_wait', next_attempt_at = '2999-01-01T00:00:00.000Z'
+      WHERE announcement_id = 'first-independent' AND language_code = 'ms'
+    `).run();
+
+    const claimed = harness.queue.claimNext('fifo-worker');
+    expect(claimed?.targetGroupJid).not.toBe('shared-target@g.us');
+    expect(claimed?.announcementId).toBe('first-independent');
+    expect(claimed?.languageCode).toBe('en');
+  });
+
+  it('does not let terminal or uncertain jobs block later work for the same destination', () => {
+    const harness = createHarness();
+    persist(harness, announcement('first-terminal', 'source-first-terminal', 1000));
+    persist(harness, announcement('second-terminal', 'source-second-terminal', 2000));
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs
+      SET target_group_jid = ?
+      WHERE announcement_id IN ('first-terminal', 'second-terminal') AND language_code = 'ms'
+    `).run('shared-target@g.us');
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs SET status = 'sent'
+      WHERE announcement_id = 'first-terminal'
+    `).run();
+    expect(harness.queue.claimNext('fifo-worker')?.announcementId).toBe('second-terminal');
+
+    const third = announcement('third-uncertain', 'source-third-uncertain', 3000);
+    const fourth = announcement('fourth-uncertain', 'source-fourth-uncertain', 4000);
+    persist(harness, third);
+    persist(harness, fourth);
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs
+      SET target_group_jid = ?
+      WHERE announcement_id IN ('third-uncertain', 'fourth-uncertain') AND language_code = 'ms'
+    `).run('uncertain-target@g.us');
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs SET status = 'uncertain', lease_owner = NULL, lease_expires_at = NULL
+      WHERE announcement_id = 'third-uncertain'
+    `).run();
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs SET status = 'sent'
+      WHERE announcement_id = 'second-terminal'
+    `).run();
+    expect(harness.queue.claimNext('fifo-worker')?.announcementId).toBe('fourth-uncertain');
+  });
+
   it('reads image media once and releases the cache after the fourth send', async () => {
     const harness = createHarness();
     const mediaPath = join(harness.directory, 'image.jpg');

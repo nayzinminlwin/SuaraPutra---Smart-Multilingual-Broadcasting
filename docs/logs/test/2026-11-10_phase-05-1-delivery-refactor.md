@@ -131,3 +131,34 @@ skipped checks for Partition B.
 
 **Limitations:** Destination-aware FIFO, validation, jitter/logging, and
 recovery scheduling remain unverified until their assigned partitions.
+
+---
+
+## Partition C Test Entry — Destination-aware FIFO
+
+**Date:** 2026-11-10 22:56
+**Status:** PASSED — focused developer verification; independent Phase 5.1
+QA sign-off remains pending
+
+| ID | Scenario | Expected result | Status |
+|---|---|---|---|
+| C-01 | Earlier active same-target job | Later same-target job is not claimed | PASS |
+| C-02 | Independent destination progress | Other target continues while one target waits | PASS |
+| C-03 | Terminal same-target job | `sent` work does not block later work | PASS |
+| C-04 | Uncertain same-target job | `uncertain` work does not block later work | PASS |
+| C-05 | Existing chronological order | Healthy work retains announcement/language ordering | PASS |
+
+**Commands:**
+
+```text
+npm run typecheck
+npm run build
+npm test -- tests/unit/phase5-delivery-queue.test.ts tests/unit/phase1-database.test.ts
+git diff --check
+```
+
+**Results:** Type-check and build passed; 18 focused/database tests passed;
+no failures or skipped checks for Partition C.
+
+**Limitations:** Full regression and independent QA sign-off remain pending;
+validation, retry policy, and recovery scheduling are later partitions.

@@ -102,6 +102,33 @@ and closed-attempt transition protection.
 
 ---
 
+## Partition C Update — Destination-aware FIFO
+
+**Date:** 2026-11-10 22:56
+**Status:** Complete
+
+**Findings addressed:** AUD-02 — global polling order did not prevent an
+earlier unresolved job from being overtaken at the same destination.
+
+**Root cause:** Queue polling ordered eligible rows globally but did not
+consider unresolved earlier rows belonging to the same target JID.
+
+**Changes:**
+
+- Added a correlated earlier-job barrier scoped to `target_group_jid`.
+- Kept terminal and uncertain states outside the active blocking set.
+- Allowed independent destinations to progress while another destination is
+  blocked.
+- Added queue claim and state-transition event logging.
+
+**Verification:** Build passed; 18 focused/database tests passed; the tests
+cover same-target blocking, independent-target progress, terminal states, and
+uncertain states.
+
+**Independent retest:** Pending later Partition G QA review.
+
+---
+
 ## Partition B Update — Checkpoint and Operation Lifecycle
 
 **Date:** 2026-11-10 22:52

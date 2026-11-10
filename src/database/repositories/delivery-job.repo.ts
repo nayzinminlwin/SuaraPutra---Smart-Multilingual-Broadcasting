@@ -69,10 +69,35 @@ export class DeliveryJobRepository {
 
   pollNext(): DeliveryJob | null {
     const row = this.client.prepare(`
-      SELECT * FROM delivery_jobs
-      WHERE status IN ('pending', 'retry_wait')
-        AND next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-      ORDER BY source_timestamp_ms ASC, announcement_seq ASC, language_order ASC LIMIT 1
+      SELECT candidate.* FROM delivery_jobs AS candidate
+      WHERE candidate.status IN ('pending', 'retry_wait')
+        AND candidate.next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM delivery_jobs AS earlier
+          WHERE earlier.target_group_jid = candidate.target_group_jid
+            AND (
+              earlier.source_timestamp_ms < candidate.source_timestamp_ms
+              OR (
+                earlier.source_timestamp_ms = candidate.source_timestamp_ms
+                AND earlier.announcement_seq < candidate.announcement_seq
+              )
+              OR (
+                earlier.source_timestamp_ms = candidate.source_timestamp_ms
+                AND earlier.announcement_seq = candidate.announcement_seq
+                AND earlier.language_order < candidate.language_order
+              )
+            )
+            AND (
+              earlier.status IN ('pending', 'sending')
+              OR (
+                earlier.status = 'retry_wait'
+                AND earlier.next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+              )
+            )
+        )
+      ORDER BY candidate.source_timestamp_ms ASC, candidate.announcement_seq ASC,
+        candidate.language_order ASC LIMIT 1
     `).get() as DeliveryRow | undefined;
     return row ? map(row) : null;
   }

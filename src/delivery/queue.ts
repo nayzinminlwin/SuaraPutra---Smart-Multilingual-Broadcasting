@@ -80,11 +80,33 @@ export class DeliveryQueue {
   }
 
   claimNext(workerId: string, leaseSeconds = 45): DeliveryJob | null {
-    return this.jobs.claimNext(workerId, leaseSeconds);
+    const job = this.jobs.claimNext(workerId, leaseSeconds);
+    if (job) {
+      this.events.append({
+        eventType: 'DELIVERY_QUEUE_CLAIMED',
+        relatedEntityType: 'delivery_job',
+        relatedEntityId: job.id,
+        level: 'DEBUG',
+        details: {
+          workerId,
+          targetGroupJid: job.targetGroupJid,
+          announcementSeq: job.announcementSeq,
+          languageOrder: job.languageOrder
+        }
+      });
+    }
+    return job;
   }
 
   markSent(jobId: string, outgoingMessageId: string): void {
     this.jobs.markSent(jobId, outgoingMessageId);
+    this.events.append({
+      eventType: 'DELIVERY_JOB_STATE_CHANGED',
+      relatedEntityType: 'delivery_job',
+      relatedEntityId: jobId,
+      level: 'INFO',
+      details: { from: 'sending', to: 'sent', outgoingMessageId }
+    });
   }
 
   markFailure(
@@ -95,6 +117,13 @@ export class DeliveryQueue {
     nextAttemptAt?: string
   ): void {
     this.jobs.markFailure(jobId, status, code, message, nextAttemptAt);
+    this.events.append({
+      eventType: 'DELIVERY_JOB_STATE_CHANGED',
+      relatedEntityType: 'delivery_job',
+      relatedEntityId: jobId,
+      level: status === 'uncertain' || status === 'failed_permanent' ? 'WARN' : 'INFO',
+      details: { from: 'sending', to: status, errorCode: code }
+    });
   }
 
   startAttempt(jobId: string, attemptNumber: number): { id: string; deliveryJobId: string; attemptNumber: number } {
