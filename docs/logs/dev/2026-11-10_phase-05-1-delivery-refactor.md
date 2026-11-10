@@ -276,3 +276,40 @@ later Phase 5.1 partitions.
 - `git diff --check` passed.
 
 **Remaining:** Recovery scheduling remains assigned to Partition F.
+
+---
+
+## Partition F Update — Recovery Scheduling and Lifecycle Ownership
+
+**Date:** 2026-11-10 23:14
+**Status:** Complete
+
+**Files created:**
+
+- `src/delivery/recovery-scheduler.ts`
+
+**Files modified:**
+
+- `src/delivery/queue.ts`
+- `tests/unit/phase5-delivery-queue.test.ts`
+
+**Implementation summary:**
+
+- Added a lifecycle-owned recovery scheduler with a 60-second default
+  interval.
+- Startup performs one synchronous orphaned-lease recovery before scheduling
+  periodic recovery.
+- Shutdown clears the interval and is idempotent.
+- Recovery exceptions are surfaced through console error output and a safe
+  `DELIVERY_RECOVERY_FAILED` event.
+- Existing queue recovery remains deterministic and does not reset sent jobs,
+  uncertain jobs, or attempt history.
+
+**Verification:**
+
+- `npm run typecheck` passed.
+- Focused delivery tests passed: 16 tests.
+- `git diff --check` passed.
+
+**Remaining:** Final regression, independent QA, and documentation audit are
+assigned to Partition G.

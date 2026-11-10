@@ -225,3 +225,33 @@ or skipped checks for Partition E.
 
 **Limitations:** Full regression and independent QA sign-off remain pending;
 recovery scheduling is assigned to Partition F.
+
+---
+
+## Partition F Test Entry — Recovery Scheduling and Lifecycle Ownership
+
+**Date:** 2026-11-10 23:14
+**Status:** PASSED — focused developer verification; independent Phase 5.1
+QA sign-off remains pending
+
+| ID | Scenario | Expected result | Status |
+|---|---|---|---|
+| F-01 | Startup recovery | Recovery runs before interval scheduling | PASS |
+| F-02 | Periodic recovery | Scheduler invokes recovery at the configured interval | PASS |
+| F-03 | Shutdown | Interval is cleared and scheduler becomes inactive | PASS |
+| F-04 | Recovery failure | Operational error is logged and persisted safely | PASS |
+| F-05 | Evidence preservation | Recovery delegates to existing queue policy | PASS |
+
+**Commands:**
+
+```text
+npm run typecheck
+npm test -- tests/unit/phase5-delivery-queue.test.ts
+git diff --check
+```
+
+**Results:** Type-check passed; 16 focused delivery tests passed; no failures
+or skipped checks for Partition F.
+
+**Limitations:** Full regression and independent QA sign-off remain pending;
+final Phase 5.1 audit is assigned to Partition G.

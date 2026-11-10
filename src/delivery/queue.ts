@@ -282,6 +282,16 @@ export class DeliveryQueue {
     return recovered;
   }
 
+  recordRecoveryFailure(error: unknown): void {
+    const errorCode = error instanceof Error ? error.name : 'RECOVERY_ERROR';
+    console.error('[DELIVERY_RECOVERY_FAILED]', { errorCode });
+    this.events.append({
+      eventType: 'DELIVERY_RECOVERY_FAILED',
+      level: 'CRITICAL',
+      details: { errorCode }
+    });
+  }
+
   private validateTranslations(
     translations: QueueAnnouncementInput['translations']
   ): void {

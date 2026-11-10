@@ -16,6 +16,7 @@ import { MockWhatsAppAdapter } from '../../src/whatsapp/mock-adapter.js';
 import { PipelineTracer } from '../../src/observability/telemetry.js';
 import { RetryPolicy } from '../../src/delivery/retry-policy.js';
 import { WhatsAppTransientError } from '../../src/whatsapp/errors.js';
+import { DeliveryRecoveryScheduler } from '../../src/delivery/recovery-scheduler.js';
 import type { AnnouncementInput, SourceMessageInput } from '../../src/shared/types.js';
 
 const destinations = {
@@ -401,5 +402,46 @@ describe('Phase 5 delivery queue and dispatcher', () => {
       { status: 'failed', attempt_number: 1 },
       { status: 'sent', attempt_number: 2 }
     ]);
+  });
+
+  it('runs recovery before scheduling and clears its interval on shutdown', () => {
+    const harness = createHarness();
+    const setIntervalMock = vi.fn((callback: () => void, _intervalMs: number) => {
+      callback();
+      return 1 as unknown as ReturnType<typeof setInterval>;
+    });
+    const clearIntervalMock = vi.fn();
+    const recover = vi.spyOn(harness.queue, 'recoverOrphanedJobs').mockReturnValue(2);
+    const scheduler = new DeliveryRecoveryScheduler(harness.queue, {
+      intervalMs: 60_000,
+      setInterval: setIntervalMock,
+      clearInterval: clearIntervalMock
+    });
+
+    expect(scheduler.start()).toBe(2);
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(setIntervalMock).toHaveBeenCalledWith(expect.any(Function), 60_000);
+    expect(scheduler.isRunning).toBe(true);
+
+    scheduler.stop();
+    expect(clearIntervalMock).toHaveBeenCalledWith(1);
+    expect(scheduler.isRunning).toBe(false);
+  });
+
+  it('logs recovery failures without hiding the operational error', () => {
+    const harness = createHarness();
+    vi.spyOn(harness.queue, 'recoverOrphanedJobs').mockImplementation(() => {
+      throw new Error('synthetic recovery failure');
+    });
+    const scheduler = new DeliveryRecoveryScheduler(harness.queue, {
+      setInterval: vi.fn(() => 1 as unknown as ReturnType<typeof setInterval>),
+      clearInterval: vi.fn()
+    });
+
+    expect(scheduler.start()).toBe(0);
+    expect(harness.client.database.prepare(`
+      SELECT event_type, details_json FROM event_logs
+      WHERE event_type = 'DELIVERY_RECOVERY_FAILED'
+    `).get()).toMatchObject({ event_type: 'DELIVERY_RECOVERY_FAILED' });
   });
 });

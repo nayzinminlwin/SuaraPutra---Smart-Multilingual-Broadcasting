@@ -102,6 +102,32 @@ and closed-attempt transition protection.
 
 ---
 
+## Partition F Update — Recovery Scheduling and Lifecycle Ownership
+
+**Date:** 2026-11-10 23:14
+**Status:** Complete
+
+**Findings addressed:** AUD-06 — recovery existed only as a manually callable
+queue operation and had no lifecycle-owned startup or periodic scheduling.
+
+**Root cause:** Lease recovery was implemented at the repository/queue
+boundary but was not owned by a service lifecycle.
+
+**Changes:**
+
+- Added `DeliveryRecoveryScheduler` with startup recovery, periodic scheduling,
+  and explicit shutdown.
+- Kept recovery policy out of repositories and made timer dependencies
+  injectable for deterministic tests.
+- Added explicit recovery-failure logging and safe event persistence.
+
+**Verification:** Type-check and 16 focused delivery tests passed, including
+startup recovery, interval scheduling, shutdown cleanup, and failure logging.
+
+**Independent retest:** Pending later Partition G QA review.
+
+---
+
 ## Partition E Update — Retry Policy, Jitter, and Required Logging
 
 **Date:** 2026-11-10 23:11
