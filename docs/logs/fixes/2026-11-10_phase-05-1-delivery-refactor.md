@@ -99,3 +99,29 @@ including empty migration, upgrade preservation, duplicate attempt rejection,
 and closed-attempt transition protection.
 
 **Independent retest:** Pending later Partition G QA review.
+
+---
+
+## Partition B Update — Checkpoint and Operation Lifecycle
+
+**Date:** 2026-11-10 22:52
+**Status:** Complete
+
+**Findings addressed:** AUD-01 — failed dispatches could leave CP08 or CP09
+active and retry operations were not durably linked to the stable job.
+
+**Root cause:** The dispatcher only handled queue state after a failed send;
+telemetry checkpoints and operation-level history had no failure closure path.
+
+**Changes:**
+
+- Added failure records that close active checkpoints without throwing from the
+  cleanup path.
+- Added persisted attempt start and terminal transitions to dispatcher flow.
+- Added safe event-log entries for attempt lifecycle transitions.
+- Prevented failed checkpoints from producing successful journey summaries.
+
+**Verification:** Type-check passed and seven focused Phase 5 delivery tests
+passed, including failed-checkpoint cleanup and retry attempt lineage.
+
+**Independent retest:** Pending later Partition G QA review.

@@ -13,6 +13,7 @@ import { DeliveryDispatcher } from '../../src/delivery/dispatcher.js';
 import { DeliveryQueue } from '../../src/delivery/queue.js';
 import { MessageRouter } from '../../src/routing/message-router.js';
 import { MockWhatsAppAdapter } from '../../src/whatsapp/mock-adapter.js';
+import { PipelineTracer } from '../../src/observability/telemetry.js';
 import type { AnnouncementInput, SourceMessageInput } from '../../src/shared/types.js';
 
 const destinations = {
@@ -174,6 +175,64 @@ describe('Phase 5 delivery queue and dispatcher', () => {
       'announcement:en:120000000003@g.us',
       'announcement:zh-CN:120000000004@g.us',
       'announcement:ta:120000000005@g.us'
+    ]);
+  });
+
+  it('closes failed checkpoints and records each send operation as an attempt', async () => {
+    const harness = createHarness({ faultModesByTarget: { [destinations.ms]: 'TRANSIENT_ERROR' } });
+    persist(harness, announcement('attempts', 'source-attempts', 1000));
+    const tracer = new PipelineTracer({
+      messageId: 'attempts',
+      waSourceSentTimestampMs: 1000
+    });
+    const dispatcher = new DeliveryDispatcher({
+      adapter: harness.adapter,
+      queue: harness.queue,
+      pacingMs: 0,
+      tracerForJob: (job) => job.languageCode === 'ms' ? tracer : undefined
+    });
+
+    await dispatcher.dispatchOnce();
+
+    expect(tracer.checkpoints).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'CP08_MSG_RECONSTRUCT', outcome: 'completed' }),
+      expect.objectContaining({ name: 'CP09_DISPATCH_ms', outcome: 'failed' })
+    ]));
+    expect(() => tracer.finalizeJourney(Date.now())).toThrow(
+      'Cannot finalize journey with failed checkpoints'
+    );
+    expect(harness.client.database.prepare(`
+      SELECT status, failure_kind, attempt_number
+      FROM delivery_attempts
+      WHERE delivery_job_id = (SELECT id FROM delivery_jobs WHERE language_code = 'ms')
+    `).get()).toMatchObject({
+      status: 'failed',
+      failure_kind: 'transient',
+      attempt_number: 1
+    });
+  });
+
+  it('records successful attempts and does not reopen a failed operation on retry', async () => {
+    const harness = createHarness({ faultModesByTarget: { [destinations.ta]: 'TRANSIENT_ERROR' } });
+    persist(harness, announcement('attempt-retry', 'source-attempt-retry', 1000));
+    const firstDispatcher = new DeliveryDispatcher({ adapter: harness.adapter, queue: harness.queue, pacingMs: 0 });
+    await firstDispatcher.dispatchUntilIdle();
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs
+      SET next_attempt_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE language_code = 'ta'
+    `).run();
+    const secondDispatcher = new DeliveryDispatcher({ adapter: new MockWhatsAppAdapter(), queue: harness.queue, pacingMs: 0 });
+    await secondDispatcher.dispatchUntilIdle();
+
+    expect(harness.client.database.prepare(`
+      SELECT status, attempt_number
+      FROM delivery_attempts
+      WHERE delivery_job_id = (SELECT id FROM delivery_jobs WHERE language_code = 'ta')
+      ORDER BY attempt_number
+    `).all()).toEqual([
+      { status: 'failed', attempt_number: 1 },
+      { status: 'sent', attempt_number: 2 }
     ]);
   });
 });

@@ -101,3 +101,33 @@ skipped checks for Partition A.
 
 **Limitations:** Retry orchestration does not yet create attempt rows. That is
 intentionally reserved for later Phase 5.1 partitions.
+
+---
+
+## Partition B Test Entry — Checkpoint and Operation Lifecycle
+
+**Date:** 2026-11-10 22:52
+**Status:** PASSED — focused developer verification; independent Phase 5.1
+QA sign-off remains pending
+
+| ID | Scenario | Expected result | Status |
+|---|---|---|---|
+| B-01 | Failed send checkpoint closure | CP09 closes with failed outcome | PASS |
+| B-02 | Failed journey finalization | Failed checkpoint cannot finalize a successful journey | PASS |
+| B-03 | Attempt start and failure | Stable job has a failed attempt record | PASS |
+| B-04 | Retry attempt lineage | Retry creates attempt 2 and closes it independently | PASS |
+| B-05 | Successful attempt | Successful delivery records outgoing ID and sent attempt | PASS |
+
+**Commands:**
+
+```text
+npm run typecheck
+npm test -- tests/unit/phase5-delivery-queue.test.ts
+git diff --check
+```
+
+**Results:** Type-check passed; seven focused tests passed; no failures or
+skipped checks for Partition B.
+
+**Limitations:** Destination-aware FIFO, validation, jitter/logging, and
+recovery scheduling remain unverified until their assigned partitions.

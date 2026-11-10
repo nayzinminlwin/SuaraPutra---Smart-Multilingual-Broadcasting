@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { IWhatsAppAdapter, OutboundMessagePayload } from '../whatsapp/adapter.js';
 import type { DeliveryJob } from '../shared/types.js';
 import type { PipelineTracer } from '../observability/telemetry.js';
+import { WhatsAppAmbiguousTimeoutError, WhatsAppPermanentError, WhatsAppTransientError } from '../whatsapp/errors.js';
 import { RetryPolicy } from './retry-policy.js';
 import { DeliveryQueue } from './queue.js';
 
@@ -37,6 +38,8 @@ export class DeliveryDispatcher {
     if (!job) return 'idle';
 
     const tracer = this.options.tracerForJob?.(job);
+    const attempt = this.options.queue.startAttempt(job.id, job.attempts);
+    const dispatchCheckpoint = `CP09_DISPATCH_${job.languageCode}`;
     tracer?.startCheckpoint('CP08_MSG_RECONSTRUCT');
     try {
       const reconstructed = await this.reconstruct(job);
@@ -46,10 +49,11 @@ export class DeliveryDispatcher {
       });
       await this.pace();
       const dispatchStarted = process.hrtime.bigint();
-      tracer?.startCheckpoint(`CP09_DISPATCH_${job.languageCode}`);
+      tracer?.startCheckpoint(dispatchCheckpoint);
       const result = await this.options.adapter.sendMessage(job.targetGroupJid, payload);
       const durationUs = Number((process.hrtime.bigint() - dispatchStarted) / 1000n);
-      tracer?.endCheckpoint(`CP09_DISPATCH_${job.languageCode}`, { durationUs });
+      tracer?.endCheckpoint(dispatchCheckpoint, { durationUs });
+      this.options.queue.markAttemptSent(attempt.id, job.id, result.outgoingMessageId);
       this.options.queue.markSent(job.id, result.outgoingMessageId);
       if (job.languageOrder === 4) {
         this.mediaCache.delete(job.announcementId);
@@ -57,8 +61,23 @@ export class DeliveryDispatcher {
       }
       return 'sent';
     } catch (error) {
+      const errorCode = error instanceof Error ? error.name : 'DELIVERY_ERROR';
+      tracer?.recordCheckpointFailure('CP08_MSG_RECONSTRUCT', errorCode, { jobId: job.id });
+      tracer?.recordCheckpointFailure(dispatchCheckpoint, errorCode, { jobId: job.id });
       if (tracer) console.error(`[TRACE:${tracer.traceId}] dispatch failed`, { jobId: job.id });
       const decision = this.retryPolicy.decide(job, error);
+      if (decision.status === 'uncertain') {
+        this.options.queue.markAttemptUncertain(attempt.id, job.id, decision.code, decision.message);
+      } else {
+        const failureKind = error instanceof WhatsAppTransientError
+          ? 'transient'
+          : error instanceof WhatsAppPermanentError
+            ? 'permanent'
+            : 'invalid';
+        this.options.queue.markAttemptFailed(
+          attempt.id, job.id, failureKind, decision.code, decision.message
+        );
+      }
       this.options.queue.markFailure(
         job.id, decision.status, decision.code, decision.message, decision.nextAttemptAt
       );

@@ -136,3 +136,38 @@ follow-up items here as the phase progresses.
 
 **Remaining:** Dispatcher integration and retry-attempt creation are reserved
 for Partition B and later. The stable delivery-job behavior is unchanged.
+
+---
+
+## Partition B Update — Checkpoint and Operation Lifecycle
+
+**Date:** 2026-11-10 22:52
+**Status:** Complete
+
+**Files modified:**
+
+- `src/observability/telemetry.ts`
+- `src/delivery/queue.ts`
+- `src/delivery/dispatcher.ts`
+- `tests/unit/phase5-delivery-queue.test.ts`
+
+**Implementation summary:**
+
+- Added non-throwing checkpoint failure recording and active-checkpoint
+  inspection.
+- Failed CP08 and CP09 operations now close with duration and safe failure
+  metadata.
+- Delivery dispatch starts one persisted attempt per claimed operation and
+  closes it as sent, failed, or uncertain.
+- Retries use new attempt rows while retaining the stable delivery job.
+- Journeys with failed checkpoints cannot be finalized as successful.
+- Added event records for attempt start, success, failure, and uncertainty.
+
+**Verification:**
+
+- `npm run typecheck` passed.
+- Phase 5 delivery tests passed: 7 tests.
+- `git diff --check` passed.
+
+**Remaining:** Retry logging, FIFO policy, validation, and recovery scheduling
+remain assigned to later Phase 5.1 partitions.

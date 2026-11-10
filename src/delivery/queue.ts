@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { LanguageCode } from '../config/groups.js';
 import type { PipelineTracer } from '../observability/telemetry.js';
 import type {
@@ -7,6 +8,7 @@ import type { DatabaseClient } from '../database/client.js';
 import { AnnouncementRepository } from '../database/repositories/announcement.repo.js';
 import { DeliveryJobRepository } from '../database/repositories/delivery-job.repo.js';
 import { EventLogRepository } from '../database/repositories/event-log.repo.js';
+import { DeliveryAttemptRepository } from '../database/repositories/delivery-attempt.repo.js';
 import { TranslationRepository } from '../database/repositories/translation.repo.js';
 import { MessageRouter } from '../routing/message-router.js';
 
@@ -22,6 +24,7 @@ export type QueueAnnouncementInput = Readonly<{
 export class DeliveryQueue {
   private readonly events: EventLogRepository;
   private readonly router: MessageRouter;
+  private readonly attempts: DeliveryAttemptRepository;
 
   constructor(
     private readonly database: DatabaseClient,
@@ -33,6 +36,7 @@ export class DeliveryQueue {
   ) {
     this.router = new MessageRouter(destinations);
     this.events = events ?? new EventLogRepository(database);
+    this.attempts = new DeliveryAttemptRepository(database);
   }
 
   persistAnnouncement(input: QueueAnnouncementInput): { announcementId: string; jobs: DeliveryJob[] } {
@@ -91,6 +95,66 @@ export class DeliveryQueue {
     nextAttemptAt?: string
   ): void {
     this.jobs.markFailure(jobId, status, code, message, nextAttemptAt);
+  }
+
+  startAttempt(jobId: string, attemptNumber: number): { id: string; deliveryJobId: string; attemptNumber: number } {
+    const attempt = this.attempts.start({
+      id: randomUUID(),
+      deliveryJobId: jobId,
+      attemptNumber
+    });
+    this.events.append({
+      eventType: 'DELIVERY_ATTEMPT_STARTED',
+      relatedEntityType: 'delivery_job',
+      relatedEntityId: jobId,
+      level: 'DEBUG',
+      details: { attemptId: attempt.id, attemptNumber }
+    });
+    return { id: attempt.id, deliveryJobId: attempt.deliveryJobId, attemptNumber: attempt.attemptNumber };
+  }
+
+  markAttemptSent(attemptId: string, jobId: string, outgoingMessageId: string): void {
+    this.attempts.markSent(attemptId, outgoingMessageId);
+    this.events.append({
+      eventType: 'DELIVERY_ATTEMPT_SENT',
+      relatedEntityType: 'delivery_job',
+      relatedEntityId: jobId,
+      level: 'INFO',
+      details: { attemptId, outgoingMessageId }
+    });
+  }
+
+  markAttemptFailed(
+    attemptId: string,
+    jobId: string,
+    failureKind: 'transient' | 'permanent' | 'invalid',
+    errorCode: string,
+    errorMessage: string
+  ): void {
+    this.attempts.markFailed(attemptId, failureKind, errorCode, errorMessage);
+    this.events.append({
+      eventType: 'DELIVERY_ATTEMPT_FAILED',
+      relatedEntityType: 'delivery_job',
+      relatedEntityId: jobId,
+      level: 'WARN',
+      details: { attemptId, failureKind, errorCode }
+    });
+  }
+
+  markAttemptUncertain(
+    attemptId: string,
+    jobId: string,
+    errorCode: string,
+    errorMessage: string
+  ): void {
+    this.attempts.markUncertain(attemptId, 'ambiguous', errorCode, errorMessage);
+    this.events.append({
+      eventType: 'DELIVERY_ATTEMPT_UNCERTAIN',
+      relatedEntityType: 'delivery_job',
+      relatedEntityId: jobId,
+      level: 'CRITICAL',
+      details: { attemptId, errorCode, automaticRetry: false }
+    });
   }
 
   recoverOrphanedJobs(): number {

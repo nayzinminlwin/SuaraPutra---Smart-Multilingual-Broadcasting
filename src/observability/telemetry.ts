@@ -17,6 +17,7 @@ export type PipelineCheckpoint = (typeof PIPELINE_CHECKPOINTS)[number];
 export type CheckpointRecord = Readonly<{
   name: string;
   durationUs: number;
+  outcome?: 'completed' | 'failed';
   metadata?: Readonly<Record<string, unknown>>;
 }>;
 
@@ -59,23 +60,35 @@ export class PipelineTracer {
       throw new Error(`Checkpoint is not active: ${name}`);
     }
     const durationUs = Number((process.hrtime.bigint() - checkpoint.startedAt) / 1000n);
-    const record = { name, durationUs, ...(metadata ? { metadata } : {}) };
+    const record = { name, durationUs, outcome: 'completed' as const, ...(metadata ? { metadata } : {}) };
     this.active.delete(name);
     this.records.push(record);
     console.log(`[TRACE:${this.traceId}] ✔ [${name}] DONE (${durationUs} μs)`, metadata ?? '');
     return record;
   }
 
-  failCheckpoint(name: string, errorCode: string, details?: Readonly<Record<string, unknown>>): never {
+  recordCheckpointFailure(
+    name: string,
+    errorCode: string,
+    details?: Readonly<Record<string, unknown>>
+  ): CheckpointRecord | null {
     const checkpoint = this.active.get(name);
-    const durationUs = checkpoint
-      ? Number((process.hrtime.bigint() - checkpoint.startedAt) / 1000n)
-      : 0;
+    if (!checkpoint) return null;
+    const durationUs = Number((process.hrtime.bigint() - checkpoint.startedAt) / 1000n);
+    const metadata = { errorCode, ...(details ? { details } : {}) };
+    const record = { name, durationUs, outcome: 'failed' as const, metadata };
     this.active.delete(name);
-    console.error(`[TRACE:${this.traceId}] ✖ [${name}] FAILED after ${durationUs} μs`, {
-      errorCode,
-      details
-    });
+    this.records.push(record);
+    console.error(`[TRACE:${this.traceId}] ✖ [${name}] FAILED after ${durationUs} μs`, metadata);
+    return record;
+  }
+
+  hasActiveCheckpoint(name: string): boolean {
+    return this.active.has(name);
+  }
+
+  failCheckpoint(name: string, errorCode: string, details?: Readonly<Record<string, unknown>>): never {
+    this.recordCheckpointFailure(name, errorCode, details);
     throw new Error(`${name} failed: ${errorCode}`);
   }
 
@@ -95,6 +108,9 @@ export class PipelineTracer {
   finalizeJourney(finalDispatchTimestampMs: number): JourneySummary {
     if (this.active.size > 0) {
       throw new Error(`Cannot finalize journey with active checkpoints: ${[...this.active.keys()].join(', ')}`);
+    }
+    if (this.records.some((record) => record.outcome === 'failed')) {
+      throw new Error('Cannot finalize journey with failed checkpoints');
     }
     const totalPipelineUs = Number((process.hrtime.bigint() - this.startedAt) / 1000n);
     const summary = {
