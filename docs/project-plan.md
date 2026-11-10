@@ -21,7 +21,7 @@ This document partitions the implementation of **SuaraPutra** into **7 main sequ
 ### 1.2 Strict v1 Scope Boundary (Week 1 Core Engine)
 * **In Scope (Phases 0–6):**
   * Core backend broadcasting engine (Node.js 22 LTS + TypeScript).
-  * SQLite WAL persistence (`better-sqlite3` `13.0.3`, 7 tables with monotonic FIFO sequence columns and `pd-standard` disk tuning).
+  * SQLite WAL persistence (`better-sqlite3` `13.0.3`) with 7 foundational tables, additive `delivery_attempts` history, monotonic FIFO sequence columns, and `pd-standard` disk tuning.
   * Mock & Live Baileys (`6.7.22`) WhatsApp transport adapters behind `IWhatsAppAdapter`.
   * Strict chronological FIFO ingestion queue (`MAX_CONCURRENT_INGESTIONS = 1`) and 5-gate filter with eager RAM buffer release (`msg.media.buffer = null` after disk write).
   * Three-path routing (`IMAGE_ONLY` zero-AI default forward, `IMAGE_CAPTION` direct 4-language caption translation, and `TEXT` `1.0`–`10.0` worthiness evaluation + 4-language translation/separation).

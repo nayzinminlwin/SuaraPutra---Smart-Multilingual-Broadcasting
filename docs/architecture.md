@@ -545,6 +545,14 @@ PRAGMA temp_store = MEMORY;
 
 ### 6.2 Complete SQLite DDL (`src/database/migrations/001_initial_schema.sql`)
 
+The initial migration creates the seven foundational tables shown below.
+The current schema has one additional additive table,
+`delivery_attempts`, created by
+`src/database/migrations/002_delivery_attempts.sql` for durable per-send
+operation history. Therefore, the effective Phase 5.1 schema contains eight
+application tables plus the migration tracking table maintained by the
+migration runner.
+
 ```sql
 -- 1. Group Configuration Table (Synced from trusted env config on startup)
 CREATE TABLE IF NOT EXISTS group_config (
@@ -694,6 +702,35 @@ CREATE INDEX IF NOT EXISTS idx_event_logs_entity
 CREATE INDEX IF NOT EXISTS idx_event_logs_created
   ON event_logs (created_at DESC);
 ```
+
+### 6.2.1 Delivery Attempt History (`002_delivery_attempts.sql`)
+
+`delivery_attempts` is the eighth application table. It stores one durable
+operation record for each send attempt while preserving the stable
+`delivery_jobs` identity across retries.
+
+```sql
+CREATE TABLE IF NOT EXISTS delivery_attempts (
+  id TEXT PRIMARY KEY,
+  delivery_job_id TEXT NOT NULL REFERENCES delivery_jobs(id) ON DELETE CASCADE,
+  attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+  status TEXT NOT NULL CHECK (status IN ('started', 'sent', 'failed', 'uncertain')),
+  failure_kind TEXT CHECK (
+    failure_kind IN ('transient', 'ambiguous', 'permanent', 'invalid')
+    OR failure_kind IS NULL
+  ),
+  error_code TEXT,
+  error_message TEXT,
+  outgoing_message_id TEXT,
+  started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  completed_at TEXT,
+  UNIQUE (delivery_job_id, attempt_number)
+);
+```
+
+The migration also creates indexes for lookup by delivery job and operational
+status/time queries. Attempt records must not contain raw provider payloads,
+credentials, message contents, or media bytes.
 
 ### 6.3 Transactional Persistence Boundaries & Destination-Aware FIFO Poll Query
 All multi-table state transitions **must** execute inside `db.transaction(() => { ... })()`:
@@ -911,7 +948,7 @@ export interface SystemHealthSnapshot {
 
 ### 9.3 Week 2 Extension Boundary: Web Administrative Dashboard (Milestone 7)
 To ensure Week 1 code requires zero refactoring when Week 2 begins:
-- All operational state (`source_messages`, `announcements`, `translations`, `delivery_jobs`, `event_logs`) resides in SQLite with indexed query patterns.
+- All operational state (`source_messages`, `announcements`, `translations`, `delivery_jobs`, `delivery_attempts`, `event_logs`) resides in SQLite with indexed query patterns.
 - In Milestone 7, `src/web/server.ts` will mount a lightweight HTTP server (bound to `127.0.0.1:${WEB_ADMIN_PORT}` or authenticated tunnel) querying the existing repository layer to display:
   - Real-time `SystemHealthSnapshot` (including FIFO queue depth, RAM usage, and WhatsApp connection status).
   - Delivery queue monitor with actions to inspect `uncertain` or `held_validation_failed` announcements and explicitly mark an `uncertain` job as `sent` or reset it to `pending`.
