@@ -4,6 +4,7 @@ import {
   WhatsAppTransientError
 } from '../whatsapp/errors.js';
 import type { DeliveryJob } from '../shared/types.js';
+import { DeliveryValidationError } from '../shared/errors.js';
 
 export type RetryDecision = Readonly<{
   status: 'retry_wait' | 'uncertain' | 'failed_permanent';
@@ -45,7 +46,9 @@ export class RetryPolicy {
       };
     }
 
-    const code = error instanceof WhatsAppPermanentError
+    const code = error instanceof DeliveryValidationError
+      ? 'INVALID_DELIVERY_PAYLOAD'
+      : error instanceof WhatsAppPermanentError
       ? 'PERMANENT_SEND_FAILURE'
       : error instanceof WhatsAppTransientError
         ? 'MAX_ATTEMPTS_REACHED'

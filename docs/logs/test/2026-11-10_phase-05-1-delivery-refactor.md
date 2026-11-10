@@ -162,3 +162,35 @@ no failures or skipped checks for Partition C.
 
 **Limitations:** Full regression and independent QA sign-off remain pending;
 validation, retry policy, and recovery scheduling are later partitions.
+
+---
+
+## Partition D Test Entry — Queue and Dispatcher Validation
+
+**Date:** 2026-11-10 23:02
+**Status:** PASSED — focused developer verification; independent Phase 5.1
+QA sign-off remains pending
+
+| ID | Scenario | Expected result | Status |
+|---|---|---|---|
+| D-01 | Failed translation at queue boundary | Queue insertion is rejected | PASS |
+| D-02 | Missing persisted text payload | Adapter is not called | PASS |
+| D-03 | Invalid persisted payload outcome | Job becomes permanent failure | PASS |
+| D-04 | Invalid attempt classification | Attempt closes as `failed/invalid` | PASS |
+| D-05 | Complete translation set | Four validated language jobs are accepted | PASS |
+| D-06 | Full regression compatibility | Existing suites remain green | PASS |
+
+**Commands:**
+
+```text
+npm run build
+npm run lint
+npm test
+git diff --check
+```
+
+**Results:** Build and lint passed; 6 test files and 48 tests passed; no
+failures or skipped checks for Partition D.
+
+**Limitations:** Independent QA sign-off remains pending; retry jitter,
+structured retry logging, and recovery scheduling are later partitions.

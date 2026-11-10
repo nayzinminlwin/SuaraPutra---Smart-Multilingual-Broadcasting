@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { IWhatsAppAdapter, OutboundMessagePayload } from '../whatsapp/adapter.js';
 import type { DeliveryJob } from '../shared/types.js';
 import type { PipelineTracer } from '../observability/telemetry.js';
+import { DeliveryValidationError } from '../shared/errors.js';
 import { WhatsAppAmbiguousTimeoutError, WhatsAppPermanentError, WhatsAppTransientError } from '../whatsapp/errors.js';
 import { RetryPolicy } from './retry-policy.js';
 import { DeliveryQueue } from './queue.js';
@@ -38,10 +39,11 @@ export class DeliveryDispatcher {
     if (!job) return 'idle';
 
     const tracer = this.options.tracerForJob?.(job);
-    const attempt = this.options.queue.startAttempt(job.id, job.attempts);
+    let attempt: { id: string; deliveryJobId: string; attemptNumber: number } | null = null;
     const dispatchCheckpoint = `CP09_DISPATCH_${job.languageCode}`;
-    tracer?.startCheckpoint('CP08_MSG_RECONSTRUCT');
     try {
+      attempt = this.options.queue.startAttempt(job.id, job.attempts);
+      tracer?.startCheckpoint('CP08_MSG_RECONSTRUCT');
       const reconstructed = await this.reconstruct(job);
       const payload = reconstructed.payload;
       tracer?.endCheckpoint('CP08_MSG_RECONSTRUCT', {
@@ -54,7 +56,6 @@ export class DeliveryDispatcher {
       const durationUs = Number((process.hrtime.bigint() - dispatchStarted) / 1000n);
       tracer?.endCheckpoint(dispatchCheckpoint, { durationUs });
       this.options.queue.markAttemptSent(attempt.id, job.id, result.outgoingMessageId);
-      this.options.queue.markSent(job.id, result.outgoingMessageId);
       if (job.languageOrder === 4) {
         this.mediaCache.delete(job.announcementId);
         tracer?.finalizeJourney(Date.parse(result.acknowledgedAtIso));
@@ -66,21 +67,34 @@ export class DeliveryDispatcher {
       tracer?.recordCheckpointFailure(dispatchCheckpoint, errorCode, { jobId: job.id });
       if (tracer) console.error(`[TRACE:${tracer.traceId}] dispatch failed`, { jobId: job.id });
       const decision = this.retryPolicy.decide(job, error);
-      if (decision.status === 'uncertain') {
-        this.options.queue.markAttemptUncertain(attempt.id, job.id, decision.code, decision.message);
+      if (!attempt) {
+        this.options.queue.markFailure(
+          job.id,
+          decision.status,
+          decision.code,
+          decision.message,
+          decision.nextAttemptAt
+        );
+      } else if (decision.status === 'uncertain') {
+        this.options.queue.markAttemptUncertainAndJobUncertain(
+          attempt.id, job.id, decision.code, decision.message
+        );
       } else {
         const failureKind = error instanceof WhatsAppTransientError
           ? 'transient'
           : error instanceof WhatsAppPermanentError
             ? 'permanent'
             : 'invalid';
-        this.options.queue.markAttemptFailed(
-          attempt.id, job.id, failureKind, decision.code, decision.message
+        this.options.queue.markAttemptFailedAndJobFailure(
+          attempt.id,
+          job.id,
+          decision.status,
+          failureKind,
+          decision.code,
+          decision.message,
+          decision.nextAttemptAt
         );
       }
-      this.options.queue.markFailure(
-        job.id, decision.status, decision.code, decision.message, decision.nextAttemptAt
-      );
       if (job.languageOrder === 4) this.mediaCache.delete(job.announcementId);
       return 'failed';
     }
@@ -105,11 +119,15 @@ export class DeliveryDispatcher {
     mediaCache: 'NOT_APPLICABLE' | 'DISK_READ' | 'RAM_HIT';
   }> {
     if (job.payloadType === 'TEXT') {
-      if (!job.textContent) throw new Error(`Delivery job ${job.id} has no text content`);
-      return { payload: { type: 'TEXT', text: job.textContent }, mediaCache: 'NOT_APPLICABLE' };
+      const text = job.textContent;
+      this.validateText(text, job.id);
+      return { payload: { type: 'TEXT', text }, mediaCache: 'NOT_APPLICABLE' };
     }
     if (!job.mediaLocalPath || !job.mediaMimeType) {
       throw new Error(`Delivery job ${job.id} has incomplete media payload`);
+    }
+    if (job.textContent != null && (job.textContent.trim().length === 0 || job.textContent.length > 4096)) {
+      throw new DeliveryValidationError(`Delivery job ${job.id} has invalid caption content`);
     }
     let entry = this.mediaCache.get(job.announcementId);
     const mediaCache = entry?.path === job.mediaLocalPath ? 'RAM_HIT' : 'DISK_READ';
@@ -127,6 +145,12 @@ export class DeliveryDispatcher {
       },
       mediaCache
     };
+  }
+
+  private validateText(text: string | null | undefined, jobId: string): asserts text is string {
+    if (!text || text.trim().length === 0 || text.length > 4096) {
+      throw new DeliveryValidationError(`Delivery job ${jobId} has invalid text content`);
+    }
   }
 
   private async pace(): Promise<void> {

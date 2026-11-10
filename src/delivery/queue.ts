@@ -43,6 +43,7 @@ export class DeliveryQueue {
     const tracer = input.tracer;
     tracer?.startCheckpoint('CP07_QUEUE_PERSIST');
     try {
+      this.validateTranslations(input.translations);
       const result = this.database.transaction(() => {
         const announcement = this.announcements.createWithSources(
           { ...input.announcement, status: 'processing' },
@@ -143,13 +144,71 @@ export class DeliveryQueue {
   }
 
   markAttemptSent(attemptId: string, jobId: string, outgoingMessageId: string): void {
-    this.attempts.markSent(attemptId, outgoingMessageId);
+    this.database.transaction(() => {
+      this.attempts.markSent(attemptId, outgoingMessageId);
+      this.jobs.markSent(jobId, outgoingMessageId);
+    });
     this.events.append({
       eventType: 'DELIVERY_ATTEMPT_SENT',
       relatedEntityType: 'delivery_job',
       relatedEntityId: jobId,
       level: 'INFO',
       details: { attemptId, outgoingMessageId }
+    });
+  }
+
+  markAttemptFailedAndJobFailure(
+    attemptId: string,
+    jobId: string,
+    status: 'retry_wait' | 'failed_permanent',
+    failureKind: 'transient' | 'permanent' | 'invalid',
+    errorCode: string,
+    errorMessage: string,
+    nextAttemptAt?: string
+  ): void {
+    this.database.transaction(() => {
+      this.attempts.markFailed(attemptId, failureKind, errorCode, errorMessage);
+      this.jobs.markFailure(jobId, status, errorCode, errorMessage, nextAttemptAt);
+    });
+    this.events.append({
+      eventType: 'DELIVERY_ATTEMPT_FAILED',
+      relatedEntityType: 'delivery_job',
+      relatedEntityId: jobId,
+      level: 'WARN',
+      details: { attemptId, failureKind, errorCode }
+    });
+    this.events.append({
+      eventType: 'DELIVERY_JOB_STATE_CHANGED',
+      relatedEntityType: 'delivery_job',
+      relatedEntityId: jobId,
+      level: 'INFO',
+      details: { from: 'sending', to: status, errorCode }
+    });
+  }
+
+  markAttemptUncertainAndJobUncertain(
+    attemptId: string,
+    jobId: string,
+    errorCode: string,
+    errorMessage: string
+  ): void {
+    this.database.transaction(() => {
+      this.attempts.markUncertain(attemptId, 'ambiguous', errorCode, errorMessage);
+      this.jobs.markFailure(jobId, 'uncertain', errorCode, errorMessage);
+    });
+    this.events.append({
+      eventType: 'DELIVERY_ATTEMPT_UNCERTAIN',
+      relatedEntityType: 'delivery_job',
+      relatedEntityId: jobId,
+      level: 'CRITICAL',
+      details: { attemptId, errorCode, automaticRetry: false }
+    });
+    this.events.append({
+      eventType: 'DELIVERY_JOB_STATE_CHANGED',
+      relatedEntityType: 'delivery_job',
+      relatedEntityId: jobId,
+      level: 'WARN',
+      details: { from: 'sending', to: 'uncertain', errorCode }
     });
   }
 
@@ -196,5 +255,27 @@ export class DeliveryQueue {
       });
     }
     return recovered;
+  }
+
+  private validateTranslations(
+    translations: QueueAnnouncementInput['translations']
+  ): void {
+    const expected = new Set(['ms', 'en', 'zh-CN', 'ta']);
+    const seen = new Set<string>();
+    for (const translation of translations) {
+      if (seen.has(translation.languageCode)) {
+        throw new Error(`Duplicate translation for ${translation.languageCode}`);
+      }
+      seen.add(translation.languageCode);
+      if (translation.validationStatus !== 'passed') {
+        throw new Error(`Translation ${translation.languageCode} did not pass validation`);
+      }
+      if (translation.content.trim().length === 0 || translation.content.length > 4096) {
+        throw new Error(`Translation ${translation.languageCode} has invalid content length`);
+      }
+    }
+    if (seen.size !== expected.size || [...expected].some((language) => !seen.has(language))) {
+      throw new Error('Exactly one validated translation is required for each destination language');
+    }
   }
 }

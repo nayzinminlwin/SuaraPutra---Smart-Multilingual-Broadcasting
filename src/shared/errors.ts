@@ -18,3 +18,10 @@ export class MigrationError extends PersistenceError {
     this.name = 'MigrationError';
   }
 }
+
+export class DeliveryValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DeliveryValidationError';
+  }
+}

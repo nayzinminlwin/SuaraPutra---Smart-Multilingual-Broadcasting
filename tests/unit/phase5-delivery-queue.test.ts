@@ -252,6 +252,57 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     ]);
   });
 
+  it('rejects incomplete or failed translations before queue insertion', () => {
+    const harness = createHarness();
+    const value = announcement('invalid-translations', 'source-invalid-translations', 1000);
+    const sources = new SourceMessageRepository(harness.client);
+    sources.insert(source(value.primarySourceMessageId, value.sourceTimestampMs));
+
+    expect(() => harness.queue.persistAnnouncement({
+      announcement: value,
+      sources: [{ sourceMessageId: value.primarySourceMessageId, role: 'primary' }],
+      translations: [{
+        id: 'invalid-ms',
+        languageCode: 'ms',
+        content: 'Rejected',
+        validationStatus: 'failed',
+        validationErrorsJson: '["missing URL"]'
+      }]
+    })).toThrow('did not pass validation');
+    expect(harness.client.database.prepare('SELECT COUNT(*) AS count FROM delivery_jobs').get())
+      .toEqual({ count: 0 });
+  });
+
+  it('converts invalid persisted payloads to permanent failures without sending', async () => {
+    const harness = createHarness();
+    persist(harness, announcement('invalid-persisted', 'source-invalid-persisted', 1000));
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs SET text_content = NULL
+      WHERE announcement_id = 'invalid-persisted' AND language_code = 'ms'
+    `).run();
+
+    const dispatcher = new DeliveryDispatcher({ adapter: harness.adapter, queue: harness.queue, pacingMs: 0 });
+    await dispatcher.dispatchOnce();
+
+    expect(harness.adapter.getSentMessages()).toHaveLength(0);
+    expect(harness.client.database.prepare(`
+      SELECT status, last_error_code
+      FROM delivery_jobs
+      WHERE announcement_id = 'invalid-persisted' AND language_code = 'ms'
+    `).get()).toEqual({
+      status: 'failed_permanent',
+      last_error_code: 'INVALID_DELIVERY_PAYLOAD'
+    });
+    expect(harness.client.database.prepare(`
+      SELECT status, failure_kind
+      FROM delivery_attempts
+      WHERE delivery_job_id = (
+        SELECT id FROM delivery_jobs
+        WHERE announcement_id = 'invalid-persisted' AND language_code = 'ms'
+      )
+    `).get()).toEqual({ status: 'failed', failure_kind: 'invalid' });
+  });
+
   it('closes failed checkpoints and records each send operation as an attempt', async () => {
     const harness = createHarness({ faultModesByTarget: { [destinations.ms]: 'TRANSIENT_ERROR' } });
     persist(harness, announcement('attempts', 'source-attempts', 1000));

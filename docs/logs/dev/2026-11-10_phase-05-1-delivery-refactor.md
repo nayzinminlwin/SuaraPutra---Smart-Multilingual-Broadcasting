@@ -206,3 +206,41 @@ remain assigned to later Phase 5.1 partitions.
 
 **Remaining:** Payload validation, retry jitter/logging, and recovery
 scheduling remain assigned to later Phase 5.1 partitions.
+
+---
+
+## Partition D Update — Queue and Dispatcher Validation
+
+**Date:** 2026-11-10 23:02
+**Status:** Complete
+
+**Files modified:**
+
+- `src/delivery/queue.ts`
+- `src/delivery/dispatcher.ts`
+- `src/delivery/retry-policy.ts`
+- `src/shared/errors.ts`
+- `tests/unit/phase5-delivery-queue.test.ts`
+
+**Implementation summary:**
+
+- Queue insertion now requires exactly one non-empty, length-bounded,
+  validation-passed translation for each configured language.
+- Dispatcher reconstruction validates persisted text and image-caption payloads
+  immediately before adapter forwarding.
+- Invalid persisted payloads never reach the WhatsApp adapter and become
+  permanent `INVALID_DELIVERY_PAYLOAD` failures.
+- Attempt completion and delivery-job state transitions now commit together
+  transactionally for sent, retryable, and uncertain outcomes.
+- Attempt creation is guarded so persistence failures do not leave an
+  unhandled dispatcher path.
+
+**Verification:**
+
+- `npm run build` passed.
+- `npm run lint` passed.
+- Full regression suite passed: 48 tests.
+- `git diff --check` passed.
+
+**Remaining:** Retry jitter/logging and recovery scheduling remain assigned to
+later Phase 5.1 partitions.

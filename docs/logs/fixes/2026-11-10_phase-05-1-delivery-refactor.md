@@ -102,6 +102,34 @@ and closed-attempt transition protection.
 
 ---
 
+## Partition D Update — Queue and Dispatcher Validation
+
+**Date:** 2026-11-10 23:02
+**Status:** Complete
+
+**Findings addressed:** AUD-03 — delivery content could be persisted or
+forwarded without a queue/dispatcher validation boundary.
+
+**Root cause:** Translation validation existed upstream, but queue insertion
+and persisted delivery reconstruction trusted the stored values without a
+second deterministic guard.
+
+**Changes:**
+
+- Added complete-language-set and validation-status checks before queue
+  insertion.
+- Added text and image-caption payload validation before adapter calls.
+- Added an explicit permanent failure code for invalid persisted payloads.
+- Made attempt/job terminal transitions transactional to prevent successful
+  attempt history from diverging from the stable job state.
+- Guarded attempt creation failures after a job claim.
+
+**Verification:** Build, lint, and the full 48-test regression suite passed.
+
+**Independent retest:** Pending later Partition G QA review.
+
+---
+
 ## Partition C Update — Destination-aware FIFO
 
 **Date:** 2026-11-10 22:56
