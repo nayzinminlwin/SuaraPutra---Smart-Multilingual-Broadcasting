@@ -17,7 +17,7 @@ This document is the **single authoritative technical Source of Truth** for **Su
 In the event of any conflict between exploratory planning documents and this specification, **this document (`docs/architecture.md`) and `docs/DECISIONS.md` take absolute precedence**.
 
 ### 1.2 System Mission
-SuaraPutra monitors a single configured WhatsApp source group inside an existing WhatsApp Community, ingests incoming messages (`TEXT`, `IMAGE_CAPTION`, and `IMAGE_ONLY`) in strict chronological FIFO order, uses **Gemini 3.8 Flash (`gemini-3.8-flash`)** in a single unified call to evaluate text announcement worthiness (`1.0–10.0`) and translate or separate content across **four target languages** (Malay `ms`, English `en`, Mandarin `zh-CN`, and Tamil `ta`), validates critical URLs and output integrity in TypeScript, and broadcasts each language version to its dedicated WhatsApp Community destination group in exact chronological order.
+SuaraPutra monitors a single configured WhatsApp source group inside an existing WhatsApp Community, ingests incoming messages (`TEXT`, `IMAGE_CAPTION`, and `IMAGE_ONLY`) in strict chronological FIFO order, uses **Gemini 3.8 Flash (`gemini-3.8-flash`)** in a single unified call to evaluate text announcement worthiness (`1.0–10.0`) and translate or separate content across **four target languages** (Malay `ms`, English `en`, Mandarin `zh-CN`, and Tamil `ta`), validates critical URLs and output integrity in TypeScript, and broadcasts each language version to its dedicated WhatsApp Community destination group using destination-aware FIFO ordering.
 
 ### 1.3 Core Architectural Invariants
 1. **Strict Transport Decoupling (Mock-First):** Core domain modules (`ingestion`, `ai`, `validation`, `routing`, `delivery`, `database`) must **never** import `@whiskeysockets/baileys` directly. All WhatsApp interactions occur exclusively through the `IWhatsAppAdapter` interface.
@@ -27,7 +27,7 @@ SuaraPutra monitors a single configured WhatsApp source group inside an existing
    - `TEXT`: Sent to **Gemini 3.8 Flash (`Type: TEXT-MESSAGE`)**, which scores announcement worthiness on a `1.0–10.0` scale. If `score < 4.0`, the model returns `null` for all language fields and the message is ignored. If `score >= 4.0`, the model returns all 4 language versions (`English`, `Malay`, `Tamil`, `Mandarin`) in the same JSON response $\rightarrow$ outbound text broadcast.
 3. **Strict Chronological FIFO Ingestion & Dispatch Ordering:**
    - **Sequential FIFO Ingestion (`Concurrency = 1`):** Incoming WhatsApp messages are enqueued into an in-order FIFO ingestion runner sorted by `(timestamp_ms ASC, ingestion_seq ASC)`. Message $N+1$ (e.g., an `IMAGE_ONLY` message at `13:34`) never begins routing or queueing until Message $N$ (e.g., a `TEXT` message at `13:32` or `IMAGE_CAPTION` at `13:33`) has completed AI processing and queued its delivery jobs. This guarantees fast passthrough messages never overtake earlier messages that require AI translation.
-   - **Chronological Batch Dispatch:** Delivery jobs record `source_timestamp_ms`, `announcement_seq`, and `language_order` (`1=ms`, `2=en`, `3=zh-CN`, `4=ta`). The dispatcher polls jobs ordered by `(source_timestamp_ms ASC, announcement_seq ASC, language_order ASC)`, ensuring every destination group receives multi-part announcements in the exact chronological sequence they were posted in the source group.
+   - **Destination-Aware FIFO Dispatch:** Delivery jobs record `source_timestamp_ms`, `announcement_seq`, and `language_order` (`1=ms`, `2=en`, `3=zh-CN`, `4=ta`). The dispatcher selects eligible jobs in that order while applying an earlier-job barrier per trusted target JID. `pending`, `sending`, and eligible `retry_wait` jobs block later work for the same destination; `sent`, `failed_permanent`, `cancelled`, and `uncertain` jobs do not. This preserves chronological order for healthy sendable work without allowing one failed or uncertain language destination to block independent destinations.
 4. **Content-Aware Bilingual & Multilingual Processing:**
    - **Code-Switched / Mixed-Language Text** (e.g., *"Hari ini, we will open registration for new students..."*): Contextually understood as a unified whole and translated naturally into all 4 target languages (`English`, `Malay`, `Tamil`, `Mandarin`).
    - **Polished Multi-Version Separated Posts** (e.g., complete English version with footer, followed by a divider, followed by a complete Malay version with footer): The existing complete versions are **separated and placed verbatim** into their respective language fields without re-translating, and only the missing target languages (`Tamil` and `Mandarin`) are translated.
@@ -83,7 +83,7 @@ flowchart TD
 
     subgraph Delivery ["4. Persistence, FIFO Queue & Dispatch Layer"]
         PASS_INIT["Create Passthrough Announcement Record"]
-        QUEUE["SQLite FIFO Delivery Queue (Ordered by source_timestamp_ms ASC, announcement_seq ASC)"]
+        QUEUE["SQLite Destination-Aware FIFO Queue (Per-target earlier-job barrier)"]
         DISPATCH["Lease-Based Dispatcher, Single-Read Media Cache & Rate Pacer"]
         RECON["Uncertain / Retry Recovery Handler"]
 
@@ -695,24 +695,50 @@ CREATE INDEX IF NOT EXISTS idx_event_logs_created
   ON event_logs (created_at DESC);
 ```
 
-### 6.3 Transactional Persistence Boundaries & FIFO Poll Query
+### 6.3 Transactional Persistence Boundaries & Destination-Aware FIFO Poll Query
 All multi-table state transitions **must** execute inside `db.transaction(() => { ... })()`:
 1. **Announcement Queueing Transaction:** Updating `announcements.status = 'queued'`, inserting the 4 `translations` records (for `TEXT` and `IMAGE_CAPTION`), and inserting the 4 `delivery_jobs` records (`language_order` `1` to `4` for `ms`, `en`, `zh-CN`, `ta`) must execute in a single atomic transaction. Either all 4 destination jobs are queued together or none are.
-2. **Chronological FIFO Job Lease Acquisition Transaction (`src/delivery/queue.ts`):** Polling the next eligible job and acquiring its lease executes atomically using the strict chronological ordering query:
+2. **Destination-aware FIFO Job Lease Acquisition Transaction (`src/delivery/queue.ts`):** Polling the next eligible job and acquiring its lease executes atomically. Candidates are ordered by `source_timestamp_ms`, `announcement_seq`, and `language_order`, and a correlated earlier-job barrier excludes a candidate when an earlier job for the same trusted `target_group_jid` is still active:
 
 ```sql
-SELECT id
-FROM delivery_jobs
-WHERE status IN ('pending', 'retry_wait')
-  AND next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-ORDER BY source_timestamp_ms ASC, announcement_seq ASC, language_order ASC
+SELECT candidate.id
+FROM delivery_jobs AS candidate
+WHERE candidate.status IN ('pending', 'retry_wait')
+  AND candidate.next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM delivery_jobs AS earlier
+    WHERE earlier.target_group_jid = candidate.target_group_jid
+      AND (
+        earlier.source_timestamp_ms < candidate.source_timestamp_ms
+        OR (
+          earlier.source_timestamp_ms = candidate.source_timestamp_ms
+          AND earlier.announcement_seq < candidate.announcement_seq
+        )
+        OR (
+          earlier.source_timestamp_ms = candidate.source_timestamp_ms
+          AND earlier.announcement_seq = candidate.announcement_seq
+          AND earlier.language_order < candidate.language_order
+        )
+      )
+      AND (
+        earlier.status IN ('pending', 'sending')
+        OR (
+          earlier.status = 'retry_wait'
+          AND earlier.next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        )
+      )
+  )
+ORDER BY candidate.source_timestamp_ms ASC, candidate.announcement_seq ASC,
+  candidate.language_order ASC
 LIMIT 1;
 ```
 
 This guarantees that:
-- Announcement 1 (`13:32 TEXT`) is dispatched to `ms`, `en`, `zh-CN`, and `ta` first.
-- Announcement 2 (`13:33 IMAGE_CAPTION`) is dispatched to `ms`, `en`, `zh-CN`, and `ta` second.
-- Announcement 3 (`13:34 IMAGE_ONLY`) is dispatched to `ms`, `en`, `zh-CN`, and `ta` third.
+- healthy jobs for the same destination preserve source chronology and language order;
+- an earlier active job cannot be overtaken by later work for the same destination;
+- independent destinations continue when another destination is blocked or uncertain;
+- `sent`, `failed_permanent`, `cancelled`, and `uncertain` jobs do not block later work.
 
 ---
 
@@ -764,7 +790,7 @@ stateDiagram-v2
 On application startup (and every $60\text{ seconds}$ thereafter), the recovery routine executes:
 1. **Orphaned Lease Recovery (`sending` $\rightarrow$ `uncertain`):**
    - Query `delivery_jobs` where `status = 'sending'` and `lease_expires_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
-   - Transition each matching row to `status = 'uncertain'`, `last_error_code = 'LEASE_EXPIRED_CRASH'`, `last_error_message = 'Process terminated or hung while job was in sending state; held as uncertain to prevent duplicate broadcast'`.
+   - Transition each matching row to `status = 'uncertain'`, close any associated `started` delivery attempt as `uncertain` with `failure_kind = 'ambiguous'`, set `last_error_code = 'LEASE_EXPIRED_CRASH'`, and set `last_error_message = 'Process terminated or hung while job was in sending state; held as uncertain to prevent duplicate broadcast'`.
    - Write a `CRITICAL` entry to `event_logs`.
 2. **Interrupted AI Pipeline Recovery (`announcements.status = 'processing'`):**
    - Query `announcements` where `status = 'processing'` and `updated_at < now - 5 minutes` that have zero `delivery_jobs`, ordered by `source_timestamp_ms ASC, announcement_seq ASC`.
@@ -917,7 +943,7 @@ Every milestone in Week 1 is verified against deterministic fixtures matching `d
 | **M1: Foundation & Persistence** | Week 1 | SQLite client + WAL/checkpoint pragmas (`001_initial_schema.sql` with `ingestion_seq` & `announcement_seq`), all 5 repositories, transactional helpers, GCP swap & systemd configuration. | Unit tests verify ACID transactions, `(chat_jid, message_id)` uniqueness, `idempotency_key` constraints, and FIFO poll order. |
 | **M2: Mock Transport & FIFO Ingestion** | Week 1 | `IWhatsAppAdapter`, `MockWhatsAppAdapter`, `event-normalizer.ts`, `message-ingestor.ts` (strict FIFO queue + 5 gates + eager buffer release), `media-store.ts`, `context-assembler.ts`. | All 11 synthetic fixtures normalize and enqueue in exact chronological FIFO order; image buffers free from RAM immediately after disk write. |
 | **M3: AI Processor & Validation** | Week 1 | `@google/genai` integration (`gemini-3.8-flash`), `ai-processor.ts`, `translation.prompt.ts`, `translation.schema.ts` (Nullable JSON), and `translation-validator.ts`. | Single AI call scores casual noise `< 4.0` (`null` translations), translates code-switched text, separates polished bilingual posts without re-translation, and translates image captions directly. |
-| **M4: Persistent FIFO Queue & Dispatcher** | Week 1 | `queue.ts` (chronological lease acquisition), `dispatcher.ts` (with single-read media cache), `retry-policy.ts`, `TEXT` / `IMAGE_CAPTION` / `IMAGE_ONLY` payload assembly, crash lease recovery. | Back-to-back `TEXT (13:32)` $\rightarrow$ `IMAGE_CAPTION (13:33)` $\rightarrow$ `IMAGE_ONLY (13:34)` broadcasts in exact chronological order across all 4 groups with 1 disk read per image. |
+| **M4: Persistent Destination-Aware FIFO Queue & Dispatcher** | Week 1 | `queue.ts` (per-destination earlier-job barrier), `dispatcher.ts` (with single-read media cache), `retry-policy.ts`, `TEXT` / `IMAGE_CAPTION` / `IMAGE_ONLY` payload assembly, crash lease recovery. | Healthy work preserves chronology per destination; active earlier work blocks only the same destination, while independent destinations continue and terminal or uncertain jobs do not block. Image announcements use 1 disk read per image. |
 | **M5: E2E Synthetic Integration Suite** | Week 1 | Full pipeline integration tests wiring `MockWhatsAppAdapter` $\rightarrow$ FIFO Ingestor $\rightarrow$ AI Processor $\rightarrow$ SQLite FIFO Queue $\rightarrow$ Dispatcher, plus crash-restart simulation. | 100% pass rate across all 11 fixture scenarios and edge cases (FIFO burst ordering, replay deduplication, timeout quarantine, process restart recovery). |
 | **M6: Live Baileys Swap & GCP Deployment** | Week 1 (On SIM arrival) | `BaileysWhatsAppAdapter` (`baileys-client.ts`), QR/pairing script, Community group JID inspection, GCP `e2-micro` `systemd` deployment (`suaraputra.service`). | Live test messages (text, image+caption, image-only) in source group reliably broadcast in chronological order to the 4 destination groups on `suaraputra-server`; survives VM reboot. |
 | **M7: Web Admin Monitoring Dashboard** | Week 2 | `src/web/` HTTP server & dashboard UI for queue inspection, `uncertain`/`held` announcement review, and audit log viewing. | Operators can inspect system health, view side-by-side translations, and reconcile `uncertain` delivery jobs via web UI. |

@@ -26,7 +26,7 @@ This document partitions the implementation of **SuaraPutra** into **7 main sequ
   * Strict chronological FIFO ingestion queue (`MAX_CONCURRENT_INGESTIONS = 1`) and 5-gate filter with eager RAM buffer release (`msg.media.buffer = null` after disk write).
   * Three-path routing (`IMAGE_ONLY` zero-AI default forward, `IMAGE_CAPTION` direct 4-language caption translation, and `TEXT` `1.0`–`10.0` worthiness evaluation + 4-language translation/separation).
   * Single-call **Gemini 3.8 Flash (`gemini-3.8-flash`)** AI processor using a Nullable JSON Schema (`{ id, score, English, Malay, Tamil, Mandarin }`), transient API retry with active console debug logging, and deterministic URL/length validation.
-  * Persistent chronological FIFO delivery queue with a single-read media cache, rate pacing, and crash lease recovery (`sending` $\rightarrow$ `uncertain`).
+  * Persistent destination-aware FIFO delivery queue with a single-read media cache, rate pacing, and crash lease recovery (`sending` $\rightarrow$ `uncertain`).
   * Active debug printing, microsecond ($\mu\text{s}$) telemetry checkpoints (`CP01`–`CP09`), and Google Cloud Compute Engine (`e2-micro` VM `suaraputra-server`) deployment.
 * **Out of Scope (Reserved for Week 2):**
   * The Web Administrative Dashboard (`src/web/` and `.github/agents/web_developer.agent.md`) is strictly excluded from Phases 0–6.
@@ -428,13 +428,13 @@ Implement the single-call `gemini-3.8-flash` AI processor (`src/ai/ai-processor.
 
 ---
 
-### PHASE 5: Persistent FIFO Delivery Queue, Single-Read Media Dispatcher & Crash Recovery
+### PHASE 5: Persistent Destination-Aware FIFO Delivery Queue, Single-Read Media Dispatcher & Crash Recovery
 
 **Assigned Agents:** `developer.agent.md`, `tester.agent.md`  
 **Relevant Skills:** `queue-and-reliability`, `database-management`, `whatsapp-baileys`, `testing-and-qa`, `documentation-workflow`, `git-scope-and-commits`
 
 #### 5.1 Objective
-Implement the static language-to-group router (`src/routing/message-router.ts`), persistent FIFO SQLite delivery queue (`src/delivery/queue.ts`), retry backoff policy (`src/delivery/retry-policy.ts`), outbound message reconstructor with a Single-Read Media Cache & rate-paced dispatcher (`src/delivery/dispatcher.ts`), startup crash recovery (`sending` $\rightarrow$ `uncertain`), and the end-to-end journey telemetry summary.
+Implement the static language-to-group router (`src/routing/message-router.ts`), persistent destination-aware FIFO SQLite delivery queue (`src/delivery/queue.ts`), retry backoff policy (`src/delivery/retry-policy.ts`), outbound message reconstructor with a Single-Read Media Cache & rate-paced dispatcher (`src/delivery/dispatcher.ts`), startup crash recovery (`sending` $\rightarrow$ `uncertain`), and the end-to-end journey telemetry summary.
 
 #### 5.2 Implementation Tasks
 1. **Static Message Router (`src/routing/message-router.ts`):**
@@ -442,7 +442,8 @@ Implement the static language-to-group router (`src/routing/message-router.ts`),
    * Compute deterministic idempotency keys: `${announcementId}:${languageCode}:${targetGroupJid}`.
 2. **Persistent FIFO Queue & Crash Lease Recovery (`src/delivery/queue.ts`):**
    * Instrument `CP07_QUEUE_PERSIST` ($\mu\text{s}$) around the atomic SQLite transaction that updates `announcements.status = 'queued'`, inserts the 4 `translations`, and inserts the 4 FIFO `delivery_jobs` (`source_timestamp_ms`, `announcement_seq`, `language_order`).
-   * Implement atomic chronological lease acquisition (`pending`/`retry_wait` $\rightarrow$ `sending` with 45-second `lease_expires_at`) ordered strictly by `source_timestamp_ms ASC, announcement_seq ASC, language_order ASC`.
+   * Implement atomic destination-aware lease acquisition (`pending`/`retry_wait` $\rightarrow$ `sending` with 45-second `lease_expires_at`) ordered by `source_timestamp_ms ASC, announcement_seq ASC, language_order ASC`, with an earlier-job barrier scoped to the same trusted destination JID.
+   * Keep `pending`, `sending`, and eligible `retry_wait` jobs blocking later work for the same destination; allow `sent`, `failed_permanent`, `cancelled`, and `uncertain` jobs to leave the queue moving.
    * Implement `recoverOrphanedJobs()` on startup and every 60s: any job stuck in `sending` past `lease_expires_at` transitions to `uncertain` (`LEASE_EXPIRED_CRASH`) and logs a `CRITICAL` event without auto-retrying.
 3. **Retry Policy (`src/delivery/retry-policy.ts`):**
    * Classify transport errors:
@@ -460,7 +461,7 @@ Implement the static language-to-group router (`src/routing/message-router.ts`),
 - [ ] `src/routing/message-router.ts`, `src/delivery/queue.ts`, `src/delivery/retry-policy.ts`, and `src/delivery/dispatcher.ts` implemented.
 - [ ] `CP07_QUEUE_PERSIST`, `CP08_MSG_RECONSTRUCT` (with Single-Read Media Cache), `CP09_DISPATCH_<LANG>`, and `[JOURNEY_SUMMARY]` instrumented.
 - [ ] Unit/integration tests in `tests/unit/phase5-delivery-queue.test.ts` verify:
-  - Chronological burst test: `<Text (13:32)>`, `<Image+Caption (13:33)>`, and `<Image Only (13:34)>` are dispatched to all 4 destination groups in exact `13:32 -> 13:33 -> 13:34` order.
+  - Destination-aware FIFO tests: healthy jobs preserve chronology per destination; an active earlier job blocks later work for that same destination, while independent destinations continue and terminal or uncertain jobs do not block.
   - Single-Read Media Cache reads the image file from disk only **once** across the 4 consecutive group sends for an image announcement and releases the buffer afterward.
   - Transient failure on 1 group (`ta`) transitions only `ta` to `retry_wait` and succeeds on retry without resending `ms`, `en`, or `zh-CN`.
   - Simulated 30s send timeout transitions the job to `uncertain` and never auto-retries it.
@@ -526,7 +527,7 @@ Wire all layers together in the application composition root (`src/app.ts`) and 
 | **Phase 2** | WhatsApp Interface, Mock Adapter & 11 Fixtures | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-02-*`, `test/YYYY-MM-DD_phase-02-*` | `feat(phase-02/whatsapp-mock):` | `CP01` normalizer + batch chronological sort + 11 synthetic fixtures + fault injection tests pass |
 | **Phase 3** | Strict FIFO Ingestion, 5-Gate Filter, Media Store & Context | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-03-*`, `test/YYYY-MM-DD_phase-03-*` | `feat(phase-03/ingestion):` | `CP02`–`CP04` + strict FIFO queue + eager RAM buffer release + 3-path routing pass |
 | **Phase 4** | Single-Call Gemini 3.8 Flash Engine, Retry & URL Validator | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-04-*`, `test/YYYY-MM-DD_phase-04-*` | `feat(phase-04/ai-engine):` | `CP05`–`CP06` + Nullable JSON (`score < 4.0` vs $\ge 4.0$) + bilingual separation + retry debug logs + URL check pass |
-| **Phase 5** | Persistent FIFO Queue, Single-Read Cache & Dispatcher | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-05-*`, `test/YYYY-MM-DD_phase-05-*` | `feat(phase-05/delivery):` | `CP07`–`CP09` + chronological burst dispatch + single-read media cache + `uncertain` timeout lock + crash recovery pass |
+| **Phase 5** | Persistent Destination-Aware FIFO Queue, Single-Read Cache & Dispatcher | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-05-*`, `test/YYYY-MM-DD_phase-05-*` | `feat(phase-05/delivery):` | `CP07`–`CP09` + destination-aware FIFO dispatch + single-read media cache + `uncertain` timeout lock + crash recovery pass |
 | **Phase 6** | E2E Composition, Full 11-Fixture QA & Live Baileys Cutover | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-06-*`, `test/YYYY-MM-DD_phase-06-*` | `feat(phase-06/e2e-baileys):` | All 11 E2E scenarios + `CP01`–`CP09` telemetry benchmark pass; ready for live SIM cutover on GCP `e2-micro` |
 
 ---
