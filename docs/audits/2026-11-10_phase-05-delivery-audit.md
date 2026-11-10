@@ -347,3 +347,26 @@ The broader review found four connected anomalies:
 within the current delivery boundary. The only intentional integration
 dependency is Phase 6 composition-root ownership of scheduler startup and
 graceful shutdown.
+
+---
+
+## Orphaned Attempt and Post-Send Persistence Follow-up
+
+**Audit date:** 2026-11-11
+**Scope:** Recovery attempt closure and confirmed-send persistence failures
+
+Two additional reliability issues identified after the D–G audit were
+remediated:
+
+1. Expired `sending` jobs now close all associated `started` attempts as
+   `uncertain` with `failure_kind = ambiguous` and
+   `error_code = LEASE_EXPIRED_CRASH` in the same transaction as job recovery.
+2. A database failure after the adapter confirms a send is no longer treated
+   as an ordinary delivery failure. The dispatcher returns `uncertain`, emits
+   a critical safe event when possible, and never schedules an automatic
+   retry. The lease remains available for recovery if durable state could not
+   be updated.
+
+Focused reliability verification passed with 30 tests across the delivery and
+database suites. FIFO contract alignment remains intentionally deferred to the
+next architecture update.

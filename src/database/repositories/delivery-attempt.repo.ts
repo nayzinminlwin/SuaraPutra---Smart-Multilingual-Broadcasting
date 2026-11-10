@@ -94,6 +94,20 @@ export class DeliveryAttemptRepository {
     return rows.map(map);
   }
 
+  markStartedAsUncertainForJob(
+    deliveryJobId: string,
+    errorCode: string,
+    errorMessage: string
+  ): number {
+    const result = this.client.prepare(`
+      UPDATE delivery_attempts
+      SET status = 'uncertain', failure_kind = 'ambiguous', error_code = ?,
+          error_message = ?, completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE delivery_job_id = ? AND status = 'started'
+    `).run(errorCode, errorMessage, deliveryJobId);
+    return result.changes;
+  }
+
   private complete(
     id: string,
     status: Extract<DeliveryAttemptStatus, 'sent' | 'failed' | 'uncertain'>,

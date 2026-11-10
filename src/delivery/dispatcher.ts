@@ -33,7 +33,7 @@ export class DeliveryDispatcher {
     this.retryPolicy = options.retryPolicy ?? new RetryPolicy();
   }
 
-  async dispatchOnce(): Promise<'paused' | 'idle' | 'sent' | 'failed'> {
+  async dispatchOnce(): Promise<'paused' | 'idle' | 'sent' | 'failed' | 'uncertain'> {
     if (this.options.killSwitch) return 'paused';
     const job = this.options.queue.claimNext(`dispatcher-${randomUUID()}`);
     if (!job) return 'idle';
@@ -42,6 +42,8 @@ export class DeliveryDispatcher {
     let attempt: { id: string; deliveryJobId: string; attemptNumber: number } | null = null;
     const dispatchCheckpoint = `CP09_DISPATCH_${job.languageCode}`;
     let acknowledgedAtIso: string | null = null;
+    let sendAcknowledged = false;
+    let outgoingMessageId: string | null = null;
     try {
       attempt = this.options.queue.startAttempt(job.id, job.attempts);
       tracer?.startCheckpoint('CP08_MSG_RECONSTRUCT');
@@ -54,6 +56,8 @@ export class DeliveryDispatcher {
       const dispatchStarted = process.hrtime.bigint();
       tracer?.startCheckpoint(dispatchCheckpoint);
       const result = await this.options.adapter.sendMessage(job.targetGroupJid, payload);
+      sendAcknowledged = true;
+      outgoingMessageId = result.outgoingMessageId;
       const durationUs = Number((process.hrtime.bigint() - dispatchStarted) / 1000n);
       tracer?.endCheckpoint(dispatchCheckpoint, { durationUs });
       this.options.queue.markAttemptSent(attempt.id, job.id, result.outgoingMessageId);
@@ -62,6 +66,16 @@ export class DeliveryDispatcher {
         acknowledgedAtIso = result.acknowledgedAtIso;
       }
     } catch (error) {
+      if (sendAcknowledged && attempt) {
+        this.options.queue.recordPostSendPersistenceFailure(
+          job.id,
+          attempt.id,
+          outgoingMessageId ?? 'unknown',
+          error
+        );
+        if (job.languageOrder === 4) this.mediaCache.delete(job.announcementId);
+        return 'uncertain';
+      }
       const errorCode = error instanceof Error ? error.name : 'DELIVERY_ERROR';
       tracer?.recordCheckpointFailure('CP08_MSG_RECONSTRUCT', errorCode, { jobId: job.id });
       tracer?.recordCheckpointFailure(dispatchCheckpoint, errorCode, { jobId: job.id });

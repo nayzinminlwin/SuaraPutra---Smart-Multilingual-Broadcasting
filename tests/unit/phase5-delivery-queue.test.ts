@@ -308,10 +308,79 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     expect(await dispatcher.dispatchOnce()).toBe('sent');
 
     persist(harness, announcement('crashed', 'source-crashed', 2000));
+    const crashedJobs = harness.client.database.prepare(
+      "SELECT id FROM delivery_jobs WHERE announcement_id = 'crashed'"
+    ).all() as Array<{ id: string }>;
+    for (const [index, job] of crashedJobs.entries()) {
+      harness.queue.startAttempt(job.id, index + 1);
+    }
     harness.client.database.prepare("UPDATE delivery_jobs SET status = 'sending', lease_expires_at = '2000-01-01T00:00:00.000Z' WHERE announcement_id = 'crashed'").run();
     expect(harness.queue.recoverOrphanedJobs()).toBe(4);
     expect(harness.client.database.prepare("SELECT COUNT(*) AS count FROM delivery_jobs WHERE status = 'uncertain' AND announcement_id = 'crashed'").get())
       .toEqual({ count: 4 });
+    expect(harness.client.database.prepare(`
+      SELECT COUNT(*) AS count
+      FROM delivery_attempts
+      WHERE status = 'started'
+        AND delivery_job_id IN (
+          SELECT id FROM delivery_jobs WHERE announcement_id = 'crashed'
+        )
+    `).get()).toEqual({ count: 0 });
+    expect(harness.client.database.prepare(`
+      SELECT COUNT(*) AS count
+      FROM delivery_attempts
+      WHERE status = 'uncertain'
+        AND failure_kind = 'ambiguous'
+        AND error_code = 'LEASE_EXPIRED_CRASH'
+        AND delivery_job_id IN (
+          SELECT id FROM delivery_jobs WHERE announcement_id = 'crashed'
+        )
+    `).get()).toEqual({ count: 4 });
+  });
+
+  it('quarantines confirmed sends when sent-state persistence fails', async () => {
+    const harness = createHarness();
+    persist(harness, announcement('post-send-persist', 'source-post-send-persist', 1000));
+    vi.spyOn(harness.queue, 'markAttemptSent').mockImplementation(() => {
+      throw new Error('synthetic database failure');
+    });
+
+    const dispatcher = new DeliveryDispatcher({
+      adapter: harness.adapter,
+      queue: harness.queue,
+      pacingMs: 0
+    });
+    expect(await dispatcher.dispatchOnce()).toBe('uncertain');
+    expect(harness.adapter.getSentMessages()).toHaveLength(1);
+    expect(harness.client.database.prepare(`
+      SELECT status, attempts
+      FROM delivery_jobs
+      WHERE announcement_id = 'post-send-persist' AND language_code = 'ms'
+    `).get()).toEqual({ status: 'sending', attempts: 1 });
+    expect(harness.client.database.prepare(`
+      SELECT status
+      FROM delivery_attempts
+      WHERE delivery_job_id = (
+        SELECT id FROM delivery_jobs
+        WHERE announcement_id = 'post-send-persist' AND language_code = 'ms'
+      )
+    `).get()).toEqual({ status: 'started' });
+    expect(harness.client.database.prepare(`
+      SELECT event_type, level, details_json
+      FROM event_logs
+      WHERE event_type = 'DELIVERY_POST_SEND_PERSISTENCE_FAILED'
+    `).get()).toMatchObject({
+      event_type: 'DELIVERY_POST_SEND_PERSISTENCE_FAILED',
+      level: 'CRITICAL'
+    });
+    expect(JSON.parse((harness.client.database.prepare(`
+      SELECT details_json
+      FROM event_logs
+      WHERE event_type = 'DELIVERY_POST_SEND_PERSISTENCE_FAILED'
+    `).get() as { details_json: string }).details_json)).toMatchObject({
+      automaticRetry: false,
+      errorCode: 'Error'
+    });
   });
 
   it('routes language outputs to trusted configured JIDs with target-bound idempotency', () => {

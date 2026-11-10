@@ -181,6 +181,29 @@ root responsibility, as already documented.
 
 ---
 
+## Reliability Follow-up Update
+
+**Date:** 2026-11-11 01:27
+**Status:** Complete
+
+**Findings:** Recovery left active `started` attempts open, and confirmed
+adapter sends could be classified as permanent failures when sent-state
+persistence failed.
+
+**Fixes:** Recovery now closes matching attempts as `uncertain` and
+`ambiguous` within the job-recovery transaction. The dispatcher now detects
+post-send persistence failure, emits a critical safe event, returns
+`uncertain`, and suppresses automatic retry. Event persistence failure also
+falls back to a process-level critical log.
+
+**Verification:** Focused delivery/database tests passed (30); build, lint,
+and diff checks passed.
+
+**Deferred:** FIFO contract alignment is intentionally deferred pending the
+next architecture update.
+
+---
+
 ## Partition E Update — Retry Policy, Jitter, and Required Logging
 
 **Date:** 2026-11-10 23:11

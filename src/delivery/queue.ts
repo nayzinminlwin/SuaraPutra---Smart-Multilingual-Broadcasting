@@ -182,6 +182,41 @@ export class DeliveryQueue {
     });
   }
 
+  recordPostSendPersistenceFailure(
+    jobId: string,
+    attemptId: string,
+    outgoingMessageId: string,
+    error: unknown
+  ): void {
+    const errorCode = error instanceof Error ? error.name : 'POST_SEND_PERSISTENCE_ERROR';
+    console.error('[DELIVERY_POST_SEND_PERSISTENCE_FAILED]', {
+      jobId,
+      attemptId,
+      outgoingMessageId,
+      errorCode
+    });
+    try {
+      this.events.append({
+        eventType: 'DELIVERY_POST_SEND_PERSISTENCE_FAILED',
+        relatedEntityType: 'delivery_job',
+        relatedEntityId: jobId,
+        level: 'CRITICAL',
+        details: {
+          attemptId,
+          outgoingMessageId,
+          errorCode,
+          automaticRetry: false
+        }
+      });
+    } catch (eventError) {
+      console.error('[DELIVERY_POST_SEND_PERSISTENCE_EVENT_FAILED]', {
+        jobId,
+        attemptId,
+        errorCode: eventError instanceof Error ? eventError.name : 'EVENT_LOG_ERROR'
+      });
+    }
+  }
+
   markAttemptFailedAndJobFailure(
     attemptId: string,
     jobId: string,
@@ -271,11 +306,39 @@ export class DeliveryQueue {
   }
 
   recoverOrphanedJobs(): number {
-    const recovered = this.jobs.recoverExpiredSending();
+    const errorCode = 'LEASE_EXPIRED_CRASH';
+    const errorMessage = 'Expired sending lease recovered without automatic resend';
+    const recovered = this.database.transaction(() => {
+      const expiredJobs = this.jobs.findExpiredSending();
+      const count = this.jobs.recoverExpiredSending();
+      for (const job of expiredJobs) {
+        const closedAttempts = this.attempts.markStartedAsUncertainForJob(
+          job.id,
+          errorCode,
+          errorMessage
+        );
+        this.events.append({
+          eventType: 'DELIVERY_ATTEMPT_UNCERTAIN',
+          relatedEntityType: 'delivery_job',
+          relatedEntityId: job.id,
+          level: 'CRITICAL',
+          details: {
+            errorCode,
+            automaticRetry: false,
+            recoveredAttempts: closedAttempts
+          }
+        });
+      }
+      return count;
+    });
     this.events.append({
       eventType: 'DELIVERY_LEASE_RECOVERY',
       level: recovered > 0 ? 'CRITICAL' : 'DEBUG',
-      details: { recovered, outcome: recovered > 0 ? 'uncertain' : 'none', automaticRetry: false }
+      details: {
+        recovered,
+        outcome: recovered > 0 ? 'uncertain' : 'none',
+        automaticRetry: false
+      }
     });
     return recovered;
   }

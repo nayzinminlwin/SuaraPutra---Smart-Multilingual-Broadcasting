@@ -139,6 +139,15 @@ export class DeliveryJobRepository {
     `).run().changes;
   }
 
+  findExpiredSending(): DeliveryJob[] {
+    const rows = this.client.prepare(`
+      SELECT * FROM delivery_jobs
+      WHERE status = 'sending'
+        AND lease_expires_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    `).all() as DeliveryRow[];
+    return rows.map(map);
+  }
+
   private transition(id: string, assignments: string, parameters: unknown[], allowedStatuses: DeliveryStatus[]): void {
     const result = this.client.prepare(
       `UPDATE delivery_jobs SET ${assignments} WHERE id = ? AND status IN (${allowedStatuses.map(() => '?').join(', ')})`

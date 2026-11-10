@@ -321,3 +321,27 @@ git diff --check
 **Final QA assessment:** D–G follow-up findings are remediated. No unresolved
 implementation anomaly remains in the current delivery module. Phase 6 must
 own scheduler startup and graceful shutdown.
+
+---
+
+## Reliability Follow-up Test Entry
+
+**Date:** 2026-11-11 01:27
+**Status:** PASSED
+
+| ID | Scenario | Expected result | Status |
+|---|---|---|---|
+| QA-RF-01 | Expired sending lease with started attempt | Job and attempt become uncertain; attempt closes | PASS |
+| QA-RF-02 | Confirmed send with sent-state persistence failure | No retry; result is uncertain; send occurs once | PASS |
+
+**Commands:**
+
+```text
+npm test -- tests/unit/phase5-delivery-queue.test.ts tests/unit/phase1-database.test.ts
+npm run build
+npm run lint
+git diff --check
+```
+
+**Results:** Focused delivery/database suites passed with 30 tests. FIFO
+contract alignment was not tested or changed and remains deferred by request.

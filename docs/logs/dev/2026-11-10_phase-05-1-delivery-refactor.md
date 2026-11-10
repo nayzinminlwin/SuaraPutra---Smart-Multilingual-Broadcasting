@@ -369,3 +369,24 @@ regression passed with 57 tests; build, lint, and diff checks passed.
 
 **Result:** D–G follow-up audit found no remaining implementation anomaly
 inside the current delivery boundary.
+
+---
+
+## Reliability Follow-up Update
+
+**Date:** 2026-11-11 01:27
+**Status:** Complete
+
+- Recovery now closes orphaned `started` attempts as ambiguous uncertain
+  outcomes in the same transaction as `sending` job quarantine.
+- Confirmed adapter sends whose `sent` persistence fails are quarantined as
+  uncertain and are never routed through retry or permanent-failure handling.
+- Added safe critical event logging with a process-log fallback if event
+  persistence is also unavailable.
+- Added focused regression coverage for both failure paths.
+
+**Verification:** Delivery/database tests passed (30 tests). Build, lint, and
+diff checks passed.
+
+**Deferred:** FIFO contract alignment remains deferred until the next prompt,
+as authorized.
