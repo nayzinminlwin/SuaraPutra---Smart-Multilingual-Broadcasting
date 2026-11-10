@@ -199,8 +199,8 @@ falls back to a process-level critical log.
 **Verification:** Focused delivery/database tests passed (30); build, lint,
 and diff checks passed.
 
-**Deferred:** FIFO contract alignment is intentionally deferred pending the
-next architecture update.
+**Follow-up:** FIFO contract alignment was subsequently documented in the
+architecture and project plan. No implementation change was required.
 
 ---
 

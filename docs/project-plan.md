@@ -3,7 +3,7 @@
 **Project Name:** SuaraPutra — Smart Multilingual Broadcasting  
 **Document Path:** `docs/project-plan.md`  
 **Version:** 2.0.0 (Binding Execution Playbook)  
-**Last Updated:** 9 November 2026  
+**Last Updated:** 11 November 2026
 **Authoritative References:**  
 * Technical Source of Truth: [`docs/architecture.md`](./architecture.md)  
 * Architectural Decisions Record: [`docs/DECISIONS.md`](./DECISIONS.md)  
@@ -458,16 +458,16 @@ Implement the static language-to-group router (`src/routing/message-router.ts`),
    * Upon completing the 4th destination job for an announcement, invoke `tracer.finalizeJourney(acknowledgedAtMs)` to print `[JOURNEY_SUMMARY]` (`TOTAL_PIPELINE_US` and `TOTAL_E2E_WALL_MS`).
 
 #### 5.3 Phase 5 Deliverables Checklist
-- [ ] `src/routing/message-router.ts`, `src/delivery/queue.ts`, `src/delivery/retry-policy.ts`, and `src/delivery/dispatcher.ts` implemented.
-- [ ] `CP07_QUEUE_PERSIST`, `CP08_MSG_RECONSTRUCT` (with Single-Read Media Cache), `CP09_DISPATCH_<LANG>`, and `[JOURNEY_SUMMARY]` instrumented.
-- [ ] Unit/integration tests in `tests/unit/phase5-delivery-queue.test.ts` verify:
+- [x] `src/routing/message-router.ts`, `src/delivery/queue.ts`, `src/delivery/retry-policy.ts`, and `src/delivery/dispatcher.ts` implemented.
+- [x] `CP07_QUEUE_PERSIST`, `CP08_MSG_RECONSTRUCT` (with Single-Read Media Cache), `CP09_DISPATCH_<LANG>`, and `[JOURNEY_SUMMARY]` instrumented.
+- [x] Unit/integration tests in `tests/unit/phase5-delivery-queue.test.ts` verify:
   - Destination-aware FIFO tests: healthy jobs preserve chronology per destination; an active earlier job blocks later work for that same destination, while independent destinations continue and terminal or uncertain jobs do not block.
   - Single-Read Media Cache reads the image file from disk only **once** across the 4 consecutive group sends for an image announcement and releases the buffer afterward.
   - Transient failure on 1 group (`ta`) transitions only `ta` to `retry_wait` and succeeds on retry without resending `ms`, `en`, or `zh-CN`.
   - Simulated 30s send timeout transitions the job to `uncertain` and never auto-retries it.
   - Simulated crash (expired `sending` lease) transitions the orphaned job to `uncertain` on recovery startup.
-- [ ] **Un-negotiable Docs:** `docs/logs/dev/YYYY-MM-DD_phase-05-delivery-queue.md` and `docs/logs/test/YYYY-MM-DD_phase-05-delivery-queue-test.md` created.
-- [ ] **Un-negotiable Git Commit:** Only Phase 5 files staged and committed (`feat(phase-05/delivery): ...`).
+- [x] **Docs:** Consolidated Phase 5.1 development, fix, and QA logs are complete under `docs/logs/`.
+- [x] **Git:** Phase 5 and Phase 5.1 changes were committed in focused, scoped commits.
 
 #### 5.4 Developer Success Analysis & Gate Validation (Phase 5)
 1. Run `npm test -- tests/unit/phase5-delivery-queue.test.ts`.

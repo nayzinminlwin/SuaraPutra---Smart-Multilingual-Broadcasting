@@ -388,5 +388,5 @@ inside the current delivery boundary.
 **Verification:** Delivery/database tests passed (30 tests). Build, lint, and
 diff checks passed.
 
-**Deferred:** FIFO contract alignment remains deferred until the next prompt,
-as authorized.
+**Follow-up:** FIFO contract alignment was subsequently documented in the
+architecture and project plan. No implementation change was required.

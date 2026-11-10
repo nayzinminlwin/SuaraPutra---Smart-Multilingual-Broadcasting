@@ -411,7 +411,8 @@ and test logs named in Section 1. No additional Phase 5.1 log files are
 required unless a maintainer explicitly approves a separate operational
 incident record.
 
-## 9. Approval
+## 9. Closure
 
-This document is a proposal for review. No implementation work should begin
-until the plan and the destination-aware FIFO policy are approved.
+This plan was approved and implemented. Its destination-aware FIFO policy is
+the current delivery contract; the authoritative architecture and project plan
+documents reflect the same policy.

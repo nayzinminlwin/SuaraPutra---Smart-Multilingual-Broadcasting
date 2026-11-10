@@ -3,7 +3,7 @@
 **Project Name:** SuaraPutra — Smart Multilingual Broadcasting  
 **Document Path:** `docs/architecture.md`  
 **Version:** 1.0.0  
-**Last Updated:** 9 November 2026  
+**Last Updated:** 11 November 2026
 **Status:** Approved & Authoritative Source of Truth  
 **Target Readers:** Core Maintainers, Autonomous Coding Agents (GPT 5.6 Luna, `developer.agent`, `tester.agent`, `web_developer.agent`)  
 
