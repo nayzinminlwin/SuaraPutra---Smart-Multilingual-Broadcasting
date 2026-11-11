@@ -10,6 +10,8 @@ import { PipelineTracer } from '../observability/telemetry.js';
 import { ContextAssembler, type AssembledContext } from './context-assembler.js';
 import { MessageDeduplicator } from './deduplicator.js';
 import { MediaStore } from './media-store.js';
+import type { AiProcessor } from '../ai/ai-processor.js';
+import type { DeliveryQueue } from '../delivery/queue.js';
 
 const LANGUAGE_ORDER: readonly { code: LanguageCode; order: 1 | 2 | 3 | 4 }[] = [
   { code: 'ms', order: 1 }, { code: 'en', order: 2 }, { code: 'zh-CN', order: 3 }, { code: 'ta', order: 4 }
@@ -34,6 +36,9 @@ export interface MessageIngestorOptions {
   announcements: AnnouncementRepository;
   deliveryJobs: DeliveryJobRepository;
   database: DatabaseClient;
+  aiProcessor?: AiProcessor;
+  deliveryQueue?: DeliveryQueue;
+  onTracer?: (announcementId: string, tracer: PipelineTracer) => void;
 }
 
 export class MessageIngestor {
@@ -109,14 +114,107 @@ export class MessageIngestor {
       mediaMimeType: media?.mimeType ?? message.media?.mimeType ?? null,
       mediaSha256Hex: media?.sha256Hex ?? message.media?.fileSha256Hex ?? null, rawPayloadJson: message.rawPayloadJson
     });
-    const context = this.context.assemble(message, source);
-    if (message.kind !== 'IMAGE_ONLY') return { accepted: true, message, context };
+    const context = this.context.assemble(message, source, tracer);
+    if (message.kind !== 'IMAGE_ONLY') {
+      if (!this.options.aiProcessor || !this.options.deliveryQueue) {
+        return { accepted: true, message, context };
+      }
+      const payloadType = message.kind === 'TEXT' || message.kind === 'IMAGE_CAPTION'
+        ? message.kind
+        : (() => { throw new Error(`Unsupported message kind: ${message.kind}`); })();
+      const announcementId = deterministicId('announcement', source.id);
+      const aiResult = await this.options.aiProcessor.process({
+        id: announcementId,
+        type: payloadType === 'IMAGE_CAPTION' ? 'TEXT CAPTION FROM IMAGE' : 'TEXT-MESSAGE',
+        content: message.text ?? '',
+        sourceText: message.text ?? '',
+        otherAttributes: this.contextForAi(context),
+        announcementId,
+        tracer
+      });
+      if (aiResult.status === 'ignored') {
+        const relatedSourceIds = [...new Set(context.sourceMessageIds)];
+        this.options.announcements.createWithSources({
+          id: announcementId,
+          primarySourceMessageId: source.id,
+          sourceTimestampMs: message.timestampMs,
+          classification: 'not_announcement',
+          evaluationScore: aiResult.response.score,
+          status: 'ignored',
+          payloadType,
+          rawAiResponseJson: JSON.stringify(aiResult.response)
+        }, relatedSourceIds
+          .filter((sourceMessageId) => sourceMessageId !== source.id)
+          .map((sourceMessageId) => ({ sourceMessageId, role: 'window_context' as const })));
+        return { accepted: true, message, context, announcementId };
+      }
+      if (aiResult.status === 'held_validation_failed' || !aiResult.validation?.valid) {
+        return { accepted: true, message, context, announcementId };
+      }
+      const fields = {
+        en: aiResult.response.English,
+        ms: aiResult.response.Malay,
+        ta: aiResult.response.Tamil,
+        'zh-CN': aiResult.response.Mandarin
+      } as const;
+      const mediaLocalPath = media?.localPath ?? null;
+      const queued = this.options.deliveryQueue.persistAnnouncement({
+        announcement: {
+          id: announcementId,
+          primarySourceMessageId: source.id,
+          sourceTimestampMs: message.timestampMs,
+          classification: 'announcement',
+          evaluationScore: aiResult.response.score,
+          status: 'processing',
+          payloadType,
+          mediaLocalPath,
+          mediaMimeType: media?.mimeType ?? message.media?.mimeType ?? null,
+          rawAiResponseJson: JSON.stringify(aiResult.response)
+        },
+        sources: [...new Set(context.sourceMessageIds)].map((sourceMessageId) => ({
+          sourceMessageId,
+          role: sourceMessageId === source.id ? 'primary' as const : 'window_context' as const
+        })),
+        translations: (Object.entries(fields) as Array<[LanguageCode, string | null]>).map(([languageCode, content]) => {
+          if (!content) throw new Error(`AI response did not contain translation for ${languageCode}`);
+          return {
+            id: newId(),
+            languageCode,
+            content,
+            validationStatus: 'passed' as const
+          };
+        }),
+        mediaLocalPath,
+        mediaMimeType: media?.mimeType ?? message.media?.mimeType ?? null,
+        tracer
+      });
+      this.options.onTracer?.(queued.announcementId, tracer);
+      return { accepted: true, message, context, announcementId: queued.announcementId };
+    }
     if (!media?.localPath) throw new Error(`Image-only message ${message.messageId} was not persisted`);
-    return { accepted: true, message, context, announcementId: this.createPassthrough(source.id, message, media.localPath) };
+    const announcementId = this.createPassthrough(source.id, message, media.localPath, tracer);
+    this.options.onTracer?.(announcementId, tracer);
+    return { accepted: true, message, context, announcementId };
   }
 
-  private createPassthrough(sourceId: string, message: NormalizedInboundMessage, mediaLocalPath: string): string {
+  private contextForAi(context: AssembledContext): string {
+    const related = [
+      context.quoted && 'textContent' in context.quoted
+        ? context.quoted.textContent
+        : context.quoted && 'text' in context.quoted ? context.quoted.text : null,
+      ...context.recent.map(source => source.textContent)
+    ].filter((value): value is string => Boolean(value));
+    return related.length > 0 ? `Related context:\n${related.join('\n')}` : '';
+  }
+
+  private createPassthrough(
+    sourceId: string,
+    message: NormalizedInboundMessage,
+    mediaLocalPath: string,
+    tracer: PipelineTracer
+  ): string {
     const announcementId = deterministicId('announcement', sourceId);
+    tracer.startCheckpoint('CP07_QUEUE_PERSIST');
     const announcement = this.options.database.transaction(() => {
       const created = this.options.announcements.createWithSources({
         id: announcementId, primarySourceMessageId: sourceId, sourceTimestampMs: message.timestampMs,
@@ -131,6 +229,7 @@ export class MessageIngestor {
       })));
       return created.id;
     });
+    tracer.endCheckpoint('CP07_QUEUE_PERSIST', { jobs: 4, announcementId });
     return announcement;
   }
 

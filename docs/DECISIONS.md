@@ -128,3 +128,20 @@
   6. Milestone 6: Live Baileys integration swap (upon physical SIM arrival) and Google Cloud Compute Engine `e2-micro` deployment.
 * **Week 2 (Administrative Extension):**
   * Milestone 7: Web administrative monitoring dashboard (queue inspection, delivery audit logs, system health metrics).
+
+## 10. Phase 6 Composition and Live Adapter Decisions
+
+* The application composition root is `src/app.ts`; it owns dependency
+  injection, migration startup, adapter selection, delivery polling, recovery,
+  and graceful shutdown. Domain modules continue to depend on
+  `IWhatsAppAdapter`, not Baileys types.
+* `BaileysWhatsAppAdapter` uses multi-file auth state, normalizes only
+  realtime `notify` events, downloads approved image media before handing
+  normalized DTOs to ingestion, and applies a 30-second ambiguous-send
+  timeout. Logout is terminal until an operator re-pairs the account.
+* `HealthMonitor` exposes safe connection and queue-state counts and performs
+  the configured media/source retention task. It does not expose message
+  contents, credentials, or private media.
+* Phase 6 synthetic verification runs all 11 fixture scenarios through the
+  same composition root used by the mock adapter. The live SIM and systemd
+  smoke test are operationally postponed until the physical SIM is available.

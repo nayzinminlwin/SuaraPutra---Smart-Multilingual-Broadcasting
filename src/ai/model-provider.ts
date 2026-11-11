@@ -19,6 +19,7 @@ export interface ModelGenerateRequest {
   prompt: string;
   id: string;
   type: TranslationPromptType;
+  content: string;
   validationFeedback?: readonly string[];
 }
 
@@ -74,7 +75,7 @@ export class MockModelProvider implements IModelProvider {
     if (failure) throw failure;
     const response = this.responses[Math.min(this.responseIndex++, this.responses.length - 1)];
     if (response === undefined) throw new Error('Mock model has no configured response');
-    return typeof response === 'function' ? response() : response;
+    return typeof response === 'function' ? response(request) : response;
   }
 
   static response(value: unknown): MockModelResponse {
