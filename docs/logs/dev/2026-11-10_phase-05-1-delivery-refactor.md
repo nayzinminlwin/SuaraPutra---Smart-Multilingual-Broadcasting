@@ -1,0 +1,392 @@
+# Development Log: Phase 5.1 — Delivery Refactor
+
+**Date and time:** 2026-11-10 22:33  
+**Agent:** Not started  
+**Moderator:** Not specified  
+**Status:** Proposed / implementation not authorized
+
+## 1. Objective
+
+Refactor the Phase 5 delivery queue and dispatcher according to the approved
+Phase 5.1 plan. The work will make delivery attempts traceable, close failed
+operations safely, enforce destination-aware FIFO, validate content before
+forwarding, correct retry behavior and logging, and wire recovery scheduling.
+
+## 2. Scope and Acceptance Criteria
+
+**Authorized phase:** Phase 5.1 — Delivery Refactor
+
+**Acceptance criteria:**
+
+- One stable delivery job remains the parent of traceable delivery attempts.
+- Failed operations close before retries create new attempt operations.
+- Healthy FIFO ordering is enforced per trusted destination.
+- Terminal and uncertain states progress according to the Phase 5.1 policy.
+- Validated translations and reconstructed payloads are required before send.
+- Retry jitter, limits, and structured logging match the architecture contract.
+- Recovery runs at startup and on the approved periodic schedule.
+- All focused and regression checks pass.
+
+**Explicitly out of scope:**
+
+- Live Baileys cutover, dashboard work, and unrelated Phase 6 features.
+- Per-partition log files; updates append to this consolidated file.
+
+## 3. References
+
+- [Phase 5.1 plan](../../phase-05-1-plan.md)
+- [Phase 5 delivery audit](../../audits/2026-11-10_phase-05-delivery-audit.md)
+- [Architecture](../../architecture.md)
+- [Project plan](../../project-plan.md)
+
+## 4. Partition Entries
+
+Append one headed entry for each completed or investigated partition. Do not
+overwrite earlier entries.
+
+### Partition A — Delivery attempt persistence
+
+**Status:** Not started  
+**Changes:** Pending implementation.  
+**Verification:** Pending.
+
+### Partition B — Checkpoint and operation lifecycle
+
+**Status:** Not started  
+**Changes:** Pending implementation.  
+**Verification:** Pending.
+
+### Partition C — Destination-aware FIFO
+
+**Status:** Not started  
+**Changes:** Pending implementation.  
+**Verification:** Pending.
+
+### Partition D — Queue and dispatcher validation
+
+**Status:** Not started  
+**Changes:** Pending implementation.  
+**Verification:** Pending.
+
+### Partition E — Retry policy and logging
+
+**Status:** Not started  
+**Changes:** Pending implementation.  
+**Verification:** Pending.
+
+### Partition F — Recovery scheduling
+
+**Status:** Not started  
+**Changes:** Pending implementation.  
+**Verification:** Pending.
+
+### Partition G — Regression and documentation
+
+**Status:** Not started  
+**Changes:** Pending implementation.  
+**Verification:** Pending.
+
+## 5. Decisions, Risks, and Follow-up
+
+The destination-aware FIFO and stable-job/attempt-history decisions are
+recorded in the Phase 5.1 plan. Append implementation deviations, risks, and
+follow-up items here as the phase progresses.
+
+## 6. Commit and Documentation
+
+**Commit:** Not committed  
+**Related documentation:** Consolidated Phase 5.1 fix and test logs.
+
+---
+
+## Partition A Update — Delivery Attempt Persistence
+
+**Date:** 2026-11-10 22:48
+**Status:** Complete
+
+**Files created:**
+
+- `src/database/migrations/002_delivery_attempts.sql`
+- `src/database/repositories/delivery-attempt.repo.ts`
+
+**Files modified:**
+
+- `src/database/migrator.ts`
+- `src/shared/types.ts`
+- `tests/unit/phase1-database.test.ts`
+
+**Implementation summary:**
+
+- Added an additive migration for durable `delivery_attempts` history linked
+  to the stable `delivery_jobs` row.
+- Added unique `(delivery_job_id, attempt_number)` enforcement and operational
+  indexes.
+- Added typed repository methods to start, complete as sent, complete as
+  failed, complete as uncertain, and list attempts.
+- Extended the migration runner to apply ordered migrations while preserving
+  already-applied versions.
+- Added clean-install and upgrade-path tests, duplicate-attempt protection,
+  closed-attempt protection, and attempt-history assertions.
+
+**Partition verification:**
+
+- `npm run typecheck` passed.
+- `npm test -- tests/unit/phase1-database.test.ts` passed: 8 tests.
+- `git diff --check` passed.
+
+**Remaining:** Dispatcher integration and retry-attempt creation are reserved
+for Partition B and later. The stable delivery-job behavior is unchanged.
+
+---
+
+## Partition B Update — Checkpoint and Operation Lifecycle
+
+**Date:** 2026-11-10 22:52
+**Status:** Complete
+
+**Files modified:**
+
+- `src/observability/telemetry.ts`
+- `src/delivery/queue.ts`
+- `src/delivery/dispatcher.ts`
+- `tests/unit/phase5-delivery-queue.test.ts`
+
+**Implementation summary:**
+
+- Added non-throwing checkpoint failure recording and active-checkpoint
+  inspection.
+- Failed CP08 and CP09 operations now close with duration and safe failure
+  metadata.
+- Delivery dispatch starts one persisted attempt per claimed operation and
+  closes it as sent, failed, or uncertain.
+- Retries use new attempt rows while retaining the stable delivery job.
+- Journeys with failed checkpoints cannot be finalized as successful.
+- Added event records for attempt start, success, failure, and uncertainty.
+
+**Verification:**
+
+- `npm run typecheck` passed.
+- Phase 5 delivery tests passed: 7 tests.
+- `git diff --check` passed.
+
+**Remaining:** Retry logging, FIFO policy, validation, and recovery scheduling
+remain assigned to later Phase 5.1 partitions.
+
+---
+
+## Partition C Update — Destination-aware FIFO
+
+**Date:** 2026-11-10 22:56
+**Status:** Complete
+
+**Files modified:**
+
+- `src/database/repositories/delivery-job.repo.ts`
+- `src/delivery/queue.ts`
+- `tests/unit/phase5-delivery-queue.test.ts`
+
+**Implementation summary:**
+
+- Added a per-target earlier-job barrier to polling and atomic claiming.
+- Active `pending`, `sending`, and eligible `retry_wait` jobs block later work
+  for the same trusted target JID.
+- `sent`, `failed_permanent`, `cancelled`, and `uncertain` jobs do not block
+  later work.
+- A future-ineligible retry wait does not prevent independent destinations
+  from progressing.
+- Added queue claim and delivery-job state-transition event records with safe
+  identifiers.
+- Preserved transactional claim behavior and stable delivery-job identity.
+
+**Verification:**
+
+- `npm run build` passed.
+- Focused Phase 5 and database tests passed: 18 tests.
+- `git diff --check` passed.
+
+**Remaining:** Payload validation, retry jitter/logging, and recovery
+scheduling remain assigned to later Phase 5.1 partitions.
+
+---
+
+## Partition D Update — Queue and Dispatcher Validation
+
+**Date:** 2026-11-10 23:02
+**Status:** Complete
+
+**Files modified:**
+
+- `src/delivery/queue.ts`
+- `src/delivery/dispatcher.ts`
+- `src/delivery/retry-policy.ts`
+- `src/shared/errors.ts`
+- `tests/unit/phase5-delivery-queue.test.ts`
+
+**Implementation summary:**
+
+- Queue insertion now requires exactly one non-empty, length-bounded,
+  validation-passed translation for each configured language.
+- Dispatcher reconstruction validates persisted text and image-caption payloads
+  immediately before adapter forwarding.
+- Invalid persisted payloads never reach the WhatsApp adapter and become
+  permanent `INVALID_DELIVERY_PAYLOAD` failures.
+- Attempt completion and delivery-job state transitions now commit together
+  transactionally for sent, retryable, and uncertain outcomes.
+- Attempt creation is guarded so persistence failures do not leave an
+  unhandled dispatcher path.
+
+**Verification:**
+
+- `npm run build` passed.
+- `npm run lint` passed.
+- Full regression suite passed: 48 tests.
+- `git diff --check` passed.
+
+**Remaining:** Retry jitter/logging and recovery scheduling remain assigned to
+later Phase 5.1 partitions.
+
+---
+
+## Partition E Update — Retry Policy, Jitter, and Required Logging
+
+**Date:** 2026-11-10 23:11
+**Status:** Complete
+
+**Files modified:**
+
+- `src/delivery/retry-policy.ts`
+- `src/delivery/dispatcher.ts`
+- `src/delivery/queue.ts`
+- `tests/unit/phase5-delivery-queue.test.ts`
+
+**Implementation summary:**
+
+- Expanded injectable retry jitter from 0–1 seconds to 0–3 seconds.
+- Preserved bounded exponential backoff and maximum-attempt enforcement.
+- Added safe `DELIVERY_RETRY_DECISION` event records containing attempt,
+  maximum attempts, decision, error code, and backoff only.
+- Added retry telemetry using the existing checkpoint convention.
+- Terminal and uncertain outcomes are logged as decisions without retry
+  messaging or sensitive payload content.
+
+**Verification:**
+
+- `npm run typecheck` passed.
+- Focused delivery tests passed: 14 tests.
+- `git diff --check` passed.
+
+**Remaining:** Recovery scheduling remains assigned to Partition F.
+
+---
+
+## Partition F Update — Recovery Scheduling and Lifecycle Ownership
+
+**Date:** 2026-11-10 23:14
+**Status:** Complete
+
+**Files created:**
+
+- `src/delivery/recovery-scheduler.ts`
+
+**Files modified:**
+
+- `src/delivery/queue.ts`
+- `tests/unit/phase5-delivery-queue.test.ts`
+
+**Implementation summary:**
+
+- Added a lifecycle-owned recovery scheduler with a 60-second default
+  interval.
+- Startup performs one synchronous orphaned-lease recovery before scheduling
+  periodic recovery.
+- Shutdown clears the interval and is idempotent.
+- Recovery exceptions are surfaced through console error output and a safe
+  `DELIVERY_RECOVERY_FAILED` event.
+- Existing queue recovery remains deterministic and does not reset sent jobs,
+  uncertain jobs, or attempt history.
+
+**Verification:**
+
+- `npm run typecheck` passed.
+- Focused delivery tests passed: 16 tests.
+- `git diff --check` passed.
+
+**Remaining:** Final regression, independent QA, and documentation audit are
+assigned to Partition G.
+
+---
+
+## Partition G Update — Regression, Integration, and Documentation
+
+**Date:** 2026-11-11 01:04
+**Status:** Complete
+
+**Files modified:**
+
+- `tests/unit/phase5-delivery-queue.test.ts`
+- `docs/audits/2026-11-10_phase-05-delivery-audit.md`
+- `docs/phase-05-1-plan.md`
+- Consolidated Phase 5.1 development, fix, and QA logs
+
+**Implementation and audit summary:**
+
+- Added final image-caption reconstruction and caption-preservation coverage.
+- Added kill-switch coverage proving queued work remains durable and unsent.
+- Retested migrations, attempt lineage, checkpoint cleanup, FIFO policy,
+  validation boundaries, retry bounds/logging, and recovery scheduling.
+- Recorded the intentional per-destination FIFO decision and its residual
+  Phase 6 composition-root wiring dependency in the audit.
+- Marked the standalone Phase 5.1 plan implemented after the completion gate.
+
+**Verification:**
+
+- `npm run build` passed.
+- `npm run lint` passed.
+- Full regression suite passed: 6 test files, 54 tests.
+- `git diff --check` passed.
+
+**Completion decision:** Phase 5.1 is complete for the current modular
+delivery boundaries. Phase 6 must wire scheduler startup and graceful
+shutdown from its composition root.
+
+---
+
+## D–G Follow-up Audit Update
+
+**Date:** 2026-11-11 01:12
+**Status:** Complete
+
+**Findings and fixes:**
+
+- Closed CP07 when queue validation or persistence fails.
+- Separated post-send journey finalization from delivery failure handling.
+- Preserved empty captions for IMAGE_ONLY queue payloads while retaining
+  validation for text and captioned images.
+- Logged zero-work recovery checks for complete periodic observability.
+
+**Verification:** Focused delivery tests passed with 21 tests; final full
+regression passed with 57 tests; build, lint, and diff checks passed.
+
+**Result:** D–G follow-up audit found no remaining implementation anomaly
+inside the current delivery boundary.
+
+---
+
+## Reliability Follow-up Update
+
+**Date:** 2026-11-11 01:27
+**Status:** Complete
+
+- Recovery now closes orphaned `started` attempts as ambiguous uncertain
+  outcomes in the same transaction as `sending` job quarantine.
+- Confirmed adapter sends whose `sent` persistence fails are quarantined as
+  uncertain and are never routed through retry or permanent-failure handling.
+- Added safe critical event logging with a process-log fallback if event
+  persistence is also unavailable.
+- Added focused regression coverage for both failure paths.
+
+**Verification:** Delivery/database tests passed (30 tests). Build, lint, and
+diff checks passed.
+
+**Follow-up:** FIFO contract alignment was subsequently documented in the
+architecture and project plan. No implementation change was required.

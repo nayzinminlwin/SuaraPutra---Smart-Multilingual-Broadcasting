@@ -14,12 +14,12 @@ is:
 2. Ingestion normalizes the provider payload.
 3. Scope, loop, and duplicate checks decide eligibility.
 4. Context assembly builds a bounded source context.
-5. AI classification decides announcement status.
-6. Fact extraction and language coverage produce canonical data.
-7. Translation generates complete `ms`, `en`, `zh-CN`, and `ta` outputs.
-8. Deterministic and, where useful, AI-assisted validation checks the result.
-9. A persistent queue creates independent delivery work per destination.
-10. A dispatcher sends through the adapter and records each outcome.
+5. A single Gemini 3.8 Flash call scores text worthiness and generates
+   complete `ms`, `en`, `zh-CN`, and `ta` outputs, or translates an image
+   caption directly.
+6. Deterministic TypeScript validation checks the structured response.
+7. A persistent queue creates independent delivery work per destination.
+8. A dispatcher sends through the adapter and records each outcome.
 
 Keep the implementation order aligned with the authorized phase plan. Do not
 build later-stage live integration or dashboard behavior merely because an
@@ -43,10 +43,11 @@ and source associations required for deduplication and auditing.
 
 ### AI pipeline
 
-Accepts normalized announcement context and returns validated structured
-results. It may classify, extract canonical facts, assess language coverage,
-and generate translations. It must not choose destination JIDs, change
-configuration, execute links or commands, or override system instructions.
+Accepts normalized announcement context and returns the validated unified
+response `{ id, score, English, Malay, Tamil, Mandarin }` from one Gemini
+3.8 Flash call. It must not choose destination JIDs, change configuration,
+execute links or commands, or override system instructions. Deterministic
+TypeScript validation remains outside the model call.
 
 ### Persistence and queue
 
@@ -108,7 +109,8 @@ Represent failures according to ownership:
 
 - Invalid or unsupported input: record and stop safely.
 - Non-announcement: persist the classification decision without delivery.
-- Uncertain or conflicting facts: hold or quarantine; do not publish.
+- Invalid model output or failed deterministic validation: hold or quarantine;
+  do not publish.
 - Transient connection/provider failure: retry according to queue policy.
 - Permanent delivery failure: persist the outcome and expose it for
   operations.

@@ -1,7 +1,7 @@
 import { access, constants, mkdir, stat } from 'node:fs/promises';
 import process from 'node:process';
 import Database from 'better-sqlite3';
-import { PipelineTracer } from '../src/observability/telemetry.js';
+import { PIPELINE_CHECKPOINTS, PipelineTracer } from '../src/observability/telemetry.js';
 
 async function checkDirectory(path: string): Promise<string> {
   try {
@@ -35,8 +35,11 @@ async function main(): Promise<void> {
     messageId: 'environment-check',
     waSourceSentTimestampMs: Date.now() - 10
   });
-  tracer.startCheckpoint('CP01_ENVIRONMENT_TIMER');
-  tracer.endCheckpoint('CP01_ENVIRONMENT_TIMER', { node: process.versions.node });
+  for (const checkpoint of PIPELINE_CHECKPOINTS) {
+    tracer.startCheckpoint(checkpoint);
+    tracer.endCheckpoint(checkpoint, { node: process.versions.node });
+  }
+  tracer.logRetryOrWarning('CP05_AI_PROCESS', 1, 3, 'ENVIRONMENT_DIAGNOSTIC', 0);
   tracer.finalizeJourney(Date.now());
   console.log(`Node.js ${process.versions.node}`);
   console.log('better-sqlite3: loaded');

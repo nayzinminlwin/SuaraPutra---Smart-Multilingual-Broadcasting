@@ -23,7 +23,7 @@ Persist enough state to resume safely after a restart:
 - source message identity and normalized content metadata;
 - announcement classification and processing state;
 - links between announcements and one or more source messages;
-- canonical facts and generated translations;
+- generated translations and source-derived content metadata;
 - per-language delivery jobs and outcomes;
 - retry/lease timestamps and safe error details;
 - prompt/model version metadata required for reproducibility;
@@ -40,14 +40,11 @@ The approved design identifies these logical entities:
   and enabled state;
 - `source_messages`: chat/message identity, sender, timestamp, text or media
   reference, content hash, and quoted-message relation;
-- `announcements`: classification, canonical facts, status, and timestamps;
+- `announcements`: classification, evaluation score, payload type, status, and timestamps;
 - `announcement_sources`: many-to-many announcement/source-message links;
-- `translations`: announcement, language, content, coverage strategy, and
-  validation status;
+- `translations`: announcement, language, content, and validation status;
 - `delivery_jobs`: announcement, language, trusted target JID, state,
   attempts, idempotency key, outgoing ID, and timestamps;
-- `glossary_terms`: approved language-specific vocabulary;
-- `prompt_versions`: prompt identity, version, and content hash;
 - `event_logs`: safe operational event type, level, related ID, and details.
 
 The exact columns and types belong in migrations and the authoritative

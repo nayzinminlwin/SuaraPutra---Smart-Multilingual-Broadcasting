@@ -47,8 +47,6 @@ configuration, not model output or dashboard input.
   WhatsApp event.
 - **Announcement**: content classified as worth distributing, possibly after
   bounded context assembly from related messages.
-- **Canonical facts**: structured dates, times, names, links, amounts,
-  locations, identifiers, and instructions extracted from the source.
 - **Delivery outcome**: the independently persisted state for one language
   destination, such as pending, sent, failed, or held.
 

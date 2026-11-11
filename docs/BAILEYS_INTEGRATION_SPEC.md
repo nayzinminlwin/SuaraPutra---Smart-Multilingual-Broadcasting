@@ -141,7 +141,7 @@ When serialized to JSON, each message object has the following structure:
 
 ### 2.3 Downloading the Image Binary
 
-Image files are stored encrypted on WhatsApp CDN servers. To pass the raw image to your OCR/translation backend or re-send it, download the decrypted buffer using Baileys:
+Image files are stored encrypted on WhatsApp CDN servers. To pass the raw image to the media store or re-send it, download the decrypted buffer using Baileys:
 
 ```typescript
 import { downloadMediaMessage } from '@whiskeysockets/baileys'
@@ -211,92 +211,59 @@ await sock.sendMessage(targetGroupJid, content, {
 
 ---
 
-## 4. REST / Microservice Interface (For Non-Node Backend Bridges)
+## 4. Application Boundary
 
-If your translation backend is a separate service (Python, Go, etc.) communicating with a Node.js Baileys runner via HTTP REST:
+The initial implementation is a TypeScript modular monolith. Baileys is used
+only by the WhatsApp adapter; ingestion, AI processing, persistence, routing,
+and delivery depend on internal interfaces and normalized DTOs rather than
+Baileys payloads.
 
-### Inbound Webhook Payload (Baileys Runner -> Translation Backend)
-```json
-{
-  "sourceGroupId": "120363028391823901@g.us",
-  "messageId": "3EB0C7291A82C94F8E",
-  "senderId": "60123456789@s.whatsapp.net",
-  "senderName": "John Doe",
-  "timestamp": 1709901234,
-  "type": "text | image | image_with_caption",
-  "text": "Source text to translate", 
-  "image": "base64_encoded_buffer_or_temporary_url" 
-}
-```
+The adapter normalizes `messages.upsert` events, persists accepted source
+messages, and passes them to the sequential FIFO ingestion runner. The runner
+applies scope, self-echo, supported-kind, deduplication, and media-size gates.
+`TEXT` and `IMAGE_CAPTION` messages use one Gemini 3.8 Flash call; `IMAGE_ONLY`
+messages bypass AI and are forwarded directly. Validated outputs become
+independent SQLite delivery jobs ordered by source timestamp, announcement
+sequence, and language order. The dispatcher sends through the adapter and
+records each delivery outcome.
 
-### Outbound Request Payload (Translation Backend -> Baileys Runner)
-```json
-{
-  "targetGroupId": "120363098765432100@g.us",
-  "type": "text | image",
-  "text": "Translated text content",
-  "caption": "Translated caption content (if image)",
-  "image": "base64_encoded_buffer_or_url"
-}
-```
+There is no REST or microservice bridge in the approved architecture. Any
+future external service requires an explicit architecture decision and must
+implement the same normalized contracts and queue boundaries.
 
 ---
 
-## 5. End-to-End Extraction & Dispatch Implementation
+## 5. Adapter-Aware Extraction & Dispatch Example
 
 ```typescript
 import { 
-    makeWASocket, 
     normalizeMessageContent, 
-    downloadMediaMessage, 
-    isJidGroup,
-    type WAMessage 
+    isJidGroup
 } from '@whiskeysockets/baileys'
 
-sock.ev.on('messages.upsert', async ({ messages, type }) => {
+const adapter = new BaileysWhatsAppAdapter(sock)
+
+sock.ev.on('messages.upsert', ({ messages, type }) => {
     if (type !== 'notify') return
 
     for (const msg of messages) {
-        // 1. Filter out non-group and self messages
-        if (!msg.message || msg.key.fromMe || !isJidGroup(msg.key.remoteJid!)) {
+        if (!msg.message || msg.key.fromMe || !isJidGroup(msg.key.remoteJid ?? '')) {
             continue
         }
 
-        const sourceGroupJid = msg.key.remoteJid!
         const content = normalizeMessageContent(msg.message)
         if (!content) continue
 
-        // 2. Identify message type and extract content
-        if (content.conversation || content.extendedTextMessage?.text) {
-            const text = content.conversation || content.extendedTextMessage?.text!
-            
-            // Translate text
-            const translatedText = await translate(text, 'target-lang')
-            
-            // Forward to dedicated group
-            await sock.sendMessage(targetGroupJid, { text: translatedText })
-        } 
-        else if (content.imageMessage) {
-            const imageBuffer = await downloadMediaMessage(msg, 'buffer', {}, {
-                logger: sock.logger,
-                reuploadRequest: sock.updateMediaMessage
-            })
-
-            const rawCaption = content.imageMessage.caption
-            if (rawCaption) {
-                // Image + Text Caption
-                const translatedCaption = await translate(rawCaption, 'target-lang')
-                await sock.sendMessage(targetGroupJid, {
-                    image: imageBuffer,
-                    caption: translatedCaption
-                })
-            } else {
-                // Image only
-                await sock.sendMessage(targetGroupJid, {
-                    image: imageBuffer
-                })
-            }
-        }
+        // The adapter normalizes and enqueues; it does not translate or send inline.
+        void adapter.enqueueNormalizedMessage({
+            message: msg,
+            content
+        })
     }
 })
 ```
+
+`enqueueNormalizedMessage` represents the adapter boundary. The application
+runner performs persistence, FIFO ordering, AI processing, validation, and
+delivery-queue creation. Outbound sends are performed later by the dispatcher
+through the adapter, never directly from the event callback.
