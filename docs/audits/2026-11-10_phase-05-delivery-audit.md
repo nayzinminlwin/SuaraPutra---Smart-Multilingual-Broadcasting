@@ -282,9 +282,10 @@ documentation gate
 
 **Architecture decision:** Phase 5.1 uses destination-aware FIFO rather than
 the stronger global barrier recommended in the original audit. Active
-`pending`, `sending`, and eligible `retry_wait` work blocks later work only
-for the same trusted target JID. `uncertain` is held for reconciliation and
-does not block other destinations. This is recorded in the approved
+`pending`, `sending`, and all `retry_wait` work blocks later work only for the
+same trusted target JID, including during retry backoff. `uncertain` is held
+for reconciliation and does not block other destinations. This is recorded in
+the approved
 [Phase 5.1 plan](../phase-05-1-plan.md) and is an intentional weakening of
 global chronological ordering to preserve independent language progress.
 

@@ -188,8 +188,8 @@ remain assigned to later Phase 5.1 partitions.
 **Implementation summary:**
 
 - Added a per-target earlier-job barrier to polling and atomic claiming.
-- Active `pending`, `sending`, and eligible `retry_wait` jobs block later work
-  for the same trusted target JID.
+- Active `pending`, `sending`, and all `retry_wait` jobs block later work for
+  the same trusted target JID, including during retry backoff.
 - `sent`, `failed_permanent`, `cancelled`, and `uncertain` jobs do not block
   later work.
 - A future-ineligible retry wait does not prevent independent destinations
