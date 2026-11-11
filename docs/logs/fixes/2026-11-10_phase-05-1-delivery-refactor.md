@@ -204,6 +204,23 @@ architecture and project plan. No implementation change was required.
 
 ---
 
+## Retry-Backoff FIFO Correction
+
+**Date:** 2026-11-11 21:16
+**Status:** Complete
+
+**Finding:** A later same-destination job could overtake an earlier transient
+failure while that job was in its retry backoff window.
+
+**Fix:** Removed the `next_attempt_at` predicate from the earlier-job barrier.
+Every `retry_wait` job now blocks later same-destination work until it reaches
+a terminal state; its own timestamp still controls retry eligibility.
+
+**Verification:** Added and passed the deterministic overtaking regression
+test. Focused delivery tests passed (23); build and lint passed.
+
+---
+
 ## Partition E Update — Retry Policy, Jitter, and Required Logging
 
 **Date:** 2026-11-10 23:11

@@ -158,6 +158,35 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     expect(claimed?.languageCode).toBe('en');
   });
 
+  it('keeps a same-destination retry in backoff ahead of later work', () => {
+    const harness = createHarness();
+    persist(harness, announcement('first-retry-order', 'source-first-retry-order', 1000));
+    persist(harness, announcement('second-retry-order', 'source-second-retry-order', 2000));
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs
+      SET target_group_jid = ?
+      WHERE announcement_id IN ('first-retry-order', 'second-retry-order') AND language_code = 'ms'
+    `).run('shared-retry-target@g.us');
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs SET status = 'sent'
+      WHERE language_code <> 'ms'
+    `).run();
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs
+      SET status = 'retry_wait', next_attempt_at = '2999-01-01T00:00:00.000Z'
+      WHERE announcement_id = 'first-retry-order' AND language_code = 'ms'
+    `).run();
+
+    expect(harness.queue.claimNext('fifo-worker')).toBeNull();
+
+    harness.client.database.prepare(`
+      UPDATE delivery_jobs
+      SET status = 'failed_permanent'
+      WHERE announcement_id = 'first-retry-order' AND language_code = 'ms'
+    `).run();
+    expect(harness.queue.claimNext('fifo-worker')?.announcementId).toBe('second-retry-order');
+  });
+
   it('does not let terminal or uncertain jobs block later work for the same destination', () => {
     const harness = createHarness();
     persist(harness, announcement('first-terminal', 'source-first-terminal', 1000));

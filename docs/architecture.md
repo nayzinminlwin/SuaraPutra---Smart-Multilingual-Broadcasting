@@ -27,7 +27,7 @@ SuaraPutra monitors a single configured WhatsApp source group inside an existing
    - `TEXT`: Sent to **Gemini 3.8 Flash (`Type: TEXT-MESSAGE`)**, which scores announcement worthiness on a `1.0–10.0` scale. If `score < 4.0`, the model returns `null` for all language fields and the message is ignored. If `score >= 4.0`, the model returns all 4 language versions (`English`, `Malay`, `Tamil`, `Mandarin`) in the same JSON response $\rightarrow$ outbound text broadcast.
 3. **Strict Chronological FIFO Ingestion & Dispatch Ordering:**
    - **Sequential FIFO Ingestion (`Concurrency = 1`):** Incoming WhatsApp messages are enqueued into an in-order FIFO ingestion runner sorted by `(timestamp_ms ASC, ingestion_seq ASC)`. Message $N+1$ (e.g., an `IMAGE_ONLY` message at `13:34`) never begins routing or queueing until Message $N$ (e.g., a `TEXT` message at `13:32` or `IMAGE_CAPTION` at `13:33`) has completed AI processing and queued its delivery jobs. This guarantees fast passthrough messages never overtake earlier messages that require AI translation.
-   - **Destination-Aware FIFO Dispatch:** Delivery jobs record `source_timestamp_ms`, `announcement_seq`, and `language_order` (`1=ms`, `2=en`, `3=zh-CN`, `4=ta`). The dispatcher selects eligible jobs in that order while applying an earlier-job barrier per trusted target JID. `pending`, `sending`, and eligible `retry_wait` jobs block later work for the same destination; `sent`, `failed_permanent`, `cancelled`, and `uncertain` jobs do not. This preserves chronological order for healthy sendable work without allowing one failed or uncertain language destination to block independent destinations.
+   - **Destination-Aware FIFO Dispatch:** Delivery jobs record `source_timestamp_ms`, `announcement_seq`, and `language_order` (`1=ms`, `2=en`, `3=zh-CN`, `4=ta`). The dispatcher selects eligible jobs in that order while applying an earlier-job barrier per trusted target JID. `pending`, `sending`, and all `retry_wait` jobs block later work for the same destination, including during backoff; the block is released when the earlier job reaches a terminal state such as `sent`, `failed_permanent`, or `cancelled`. `uncertain` jobs do not block. This preserves chronological order for healthy sendable work without allowing one failed or uncertain language destination to block independent destinations.
 4. **Content-Aware Bilingual & Multilingual Processing:**
    - **Code-Switched / Mixed-Language Text** (e.g., *"Hari ini, we will open registration for new students..."*): Contextually understood as a unified whole and translated naturally into all 4 target languages (`English`, `Malay`, `Tamil`, `Mandarin`).
    - **Polished Multi-Version Separated Posts** (e.g., complete English version with footer, followed by a divider, followed by a complete Malay version with footer): The existing complete versions are **separated and placed verbatim** into their respective language fields without re-translating, and only the missing target languages (`Tamil` and `Mandarin`) are translated.
@@ -735,7 +735,7 @@ credentials, message contents, or media bytes.
 ### 6.3 Transactional Persistence Boundaries & Destination-Aware FIFO Poll Query
 All multi-table state transitions **must** execute inside `db.transaction(() => { ... })()`:
 1. **Announcement Queueing Transaction:** Updating `announcements.status = 'queued'`, inserting the 4 `translations` records (for `TEXT` and `IMAGE_CAPTION`), and inserting the 4 `delivery_jobs` records (`language_order` `1` to `4` for `ms`, `en`, `zh-CN`, `ta`) must execute in a single atomic transaction. Either all 4 destination jobs are queued together or none are.
-2. **Destination-aware FIFO Job Lease Acquisition Transaction (`src/delivery/queue.ts`):** Polling the next eligible job and acquiring its lease executes atomically. Candidates are ordered by `source_timestamp_ms`, `announcement_seq`, and `language_order`, and a correlated earlier-job barrier excludes a candidate when an earlier job for the same trusted `target_group_jid` is still active:
+2. **Destination-aware FIFO Job Lease Acquisition Transaction (`src/delivery/queue.ts`):** Polling the next eligible job and acquiring its lease executes atomically. Candidates are ordered by `source_timestamp_ms`, `announcement_seq`, and `language_order`, and a correlated earlier-job barrier excludes a candidate when an earlier job for the same trusted `target_group_jid` is still active. A `retry_wait` job remains an active barrier during its backoff; only its own `next_attempt_at` controls when that job can be claimed again.
 
 ```sql
 SELECT candidate.id
@@ -758,13 +758,7 @@ WHERE candidate.status IN ('pending', 'retry_wait')
           AND earlier.language_order < candidate.language_order
         )
       )
-      AND (
-        earlier.status IN ('pending', 'sending')
-        OR (
-          earlier.status = 'retry_wait'
-          AND earlier.next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        )
-      )
+      AND earlier.status IN ('pending', 'sending', 'retry_wait')
   )
 ORDER BY candidate.source_timestamp_ms ASC, candidate.announcement_seq ASC,
   candidate.language_order ASC

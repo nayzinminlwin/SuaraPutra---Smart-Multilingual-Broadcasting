@@ -370,3 +370,21 @@ remediated:
 Focused reliability verification passed with 30 tests across the delivery and
 database suites. FIFO contract alignment remains intentionally deferred to the
 next architecture update.
+
+---
+
+## Retry-Backoff FIFO Correction
+
+**Audit date:** 2026-11-11
+**Scope:** Same-destination ordering while an earlier job is in `retry_wait`
+
+The destination-aware barrier now treats every earlier `retry_wait` job as
+active, including jobs whose `next_attempt_at` is still in the future. This
+prevents a later job for the same destination from overtaking an earlier
+transient failure during its backoff window. The earlier job's own
+`next_attempt_at` still controls when it may be claimed again; the barrier is
+released when it reaches a terminal state such as `sent`, `failed_permanent`,
+or `cancelled`.
+
+Focused delivery verification passed with 23 tests, including the backoff
+overtake regression case.

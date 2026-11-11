@@ -81,8 +81,9 @@ attempt number linked to the same stable delivery job.
 The queue has strict FIFO behavior for healthy, sendable work, but delivery
 destinations remain independent:
 
-- `pending`, `sending`, and eligible `retry_wait` work block later work for
-  the same destination when an earlier job is unresolved.
+- `pending`, `sending`, and all `retry_wait` work block later work for the
+  same destination when an earlier job is unresolved, including during
+  retry backoff.
 - `sent`, `failed_permanent`, and `cancelled` are terminal and do not block
   queue progress.
 - `uncertain` is terminal for automatic forwarding. It is removed from active
@@ -169,8 +170,8 @@ healthy later work to overtake unresolved earlier work for the same target.
 - Refine queue polling to apply an earlier-job barrier per trusted target JID.
 - Exclude terminal states from active queue blocking:
   `sent`, `failed_permanent`, `cancelled`, and `uncertain`.
-- Keep `pending`, `sending`, and retry-eligible `retry_wait` as active
-  unresolved states.
+- Keep `pending`, `sending`, and all `retry_wait` states as active unresolved
+  barriers until the earlier job reaches a terminal state.
 - Ensure a retryable `ta` job does not block `ms`, `en`, or `zh-CN`.
 - Preserve atomic claim behavior and lease ownership.
 - Record queue-selection and state-transition events with safe identifiers.

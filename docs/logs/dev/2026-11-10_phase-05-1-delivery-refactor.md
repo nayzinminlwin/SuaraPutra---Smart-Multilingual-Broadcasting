@@ -390,3 +390,19 @@ diff checks passed.
 
 **Follow-up:** FIFO contract alignment was subsequently documented in the
 architecture and project plan. No implementation change was required.
+
+---
+
+## Retry-Backoff FIFO Correction
+
+**Date:** 2026-11-11 21:16
+**Status:** Complete
+
+The queue barrier now keeps all earlier same-destination `retry_wait` jobs
+active during backoff. Later work cannot overtake the retry; the retry's own
+`next_attempt_at` only controls when it becomes claimable. Added a deterministic
+regression test covering the future-backoff and `failed_permanent` release
+paths.
+
+**Verification:** Focused delivery tests passed (23); build, lint, and diff
+checks passed.
