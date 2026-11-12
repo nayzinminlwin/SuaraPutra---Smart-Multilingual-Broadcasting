@@ -229,9 +229,6 @@ export class AiProcessor {
   }
 
   private markHeld(input: AiProcessInput, errors: readonly string[]): void {
-    if (input.announcementId && this.options.announcements) {
-      this.options.announcements.updateStatus(input.announcementId, 'held_validation_failed');
-    }
     this.options.eventLogs?.append({
       eventType: 'AI_PROCESS_FAILED',
       relatedEntityType: input.announcementId ? 'announcement' : 'source_message',

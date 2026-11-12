@@ -45,10 +45,19 @@ export class DeliveryQueue {
     try {
       this.validateTranslations(input.translations, input.announcement.payloadType);
       const result = this.database.transaction(() => {
-        const announcement = this.announcements.createWithSources(
+        const existing = this.announcements.findById(input.announcement.id);
+        const announcement = existing ?? this.announcements.createWithSources(
           { ...input.announcement, status: 'processing' },
           input.sources
         );
+        if (existing) {
+          this.announcements.updateOutcome(announcement.id, {
+            classification: input.announcement.classification,
+            evaluationScore: input.announcement.evaluationScore,
+            status: 'processing',
+            rawAiResponseJson: input.announcement.rawAiResponseJson
+          });
+        }
         for (const translation of input.translations) {
           this.translations.insert({ ...translation, announcementId: announcement.id });
         }

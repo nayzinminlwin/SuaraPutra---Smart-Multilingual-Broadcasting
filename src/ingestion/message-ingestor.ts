@@ -5,6 +5,7 @@ import type { DatabaseClient } from '../database/client.js';
 import { AnnouncementRepository } from '../database/repositories/announcement.repo.js';
 import { DeliveryJobRepository } from '../database/repositories/delivery-job.repo.js';
 import { SourceMessageRepository } from '../database/repositories/source-message.repo.js';
+import { TranslationRepository } from '../database/repositories/translation.repo.js';
 import type { IWhatsAppAdapter, NormalizedInboundMessage, SupportedMessageKind } from '../whatsapp/adapter.js';
 import { PipelineTracer } from '../observability/telemetry.js';
 import { ContextAssembler, type AssembledContext } from './context-assembler.js';
@@ -45,10 +46,12 @@ export class MessageIngestor {
   private queue: Promise<unknown> = Promise.resolve();
   private readonly deduplicator: MessageDeduplicator;
   private readonly context: ContextAssembler;
+  private readonly translations: TranslationRepository;
 
   constructor(private readonly options: MessageIngestorOptions) {
     this.deduplicator = new MessageDeduplicator(options.sources);
     this.context = new ContextAssembler(options.sources, options.contextMaxMessages, options.contextWindowSeconds);
+    this.translations = new TranslationRepository(options.database);
   }
 
   attach(adapter: IWhatsAppAdapter): void {
@@ -123,32 +126,43 @@ export class MessageIngestor {
         ? message.kind
         : (() => { throw new Error(`Unsupported message kind: ${message.kind}`); })();
       const announcementId = deterministicId('announcement', source.id);
-      const aiResult = await this.options.aiProcessor.process({
-        id: announcementId,
-        type: payloadType === 'IMAGE_CAPTION' ? 'TEXT CAPTION FROM IMAGE' : 'TEXT-MESSAGE',
-        content: message.text ?? '',
-        sourceText: message.text ?? '',
-        otherAttributes: this.contextForAi(context),
-        announcementId,
-        tracer
-      });
-      if (aiResult.status === 'ignored') {
-        const relatedSourceIds = [...new Set(context.sourceMessageIds)];
-        this.options.announcements.createWithSources({
+      this.createProcessingAnnouncement(announcementId, source.id, message, payloadType, context, media);
+      let aiResult;
+      try {
+        aiResult = await this.options.aiProcessor.process({
           id: announcementId,
-          primarySourceMessageId: source.id,
-          sourceTimestampMs: message.timestampMs,
+          type: payloadType === 'IMAGE_CAPTION' ? 'TEXT CAPTION FROM IMAGE' : 'TEXT-MESSAGE',
+          content: message.text ?? '',
+          sourceText: message.text ?? '',
+          otherAttributes: this.contextForAi(context),
+          announcementId,
+          tracer
+        });
+      } catch (error) {
+        this.options.announcements.updateOutcome(announcementId, {
+          classification: 'announcement',
+          evaluationScore: 0,
+          status: 'held_validation_failed'
+        });
+        return { accepted: true, message, context, announcementId };
+      }
+      if (aiResult.status === 'ignored') {
+        this.options.announcements.updateOutcome(announcementId, {
           classification: 'not_announcement',
           evaluationScore: aiResult.response.score,
           status: 'ignored',
-          payloadType,
           rawAiResponseJson: JSON.stringify(aiResult.response)
-        }, relatedSourceIds
-          .filter((sourceMessageId) => sourceMessageId !== source.id)
-          .map((sourceMessageId) => ({ sourceMessageId, role: 'window_context' as const })));
+        });
         return { accepted: true, message, context, announcementId };
       }
       if (aiResult.status === 'held_validation_failed' || !aiResult.validation?.valid) {
+        this.options.announcements.updateOutcome(announcementId, {
+          classification: 'announcement',
+          evaluationScore: aiResult.response.score,
+          status: 'held_validation_failed',
+          rawAiResponseJson: JSON.stringify(aiResult.response)
+        });
+        this.persistFailedTranslations(announcementId, aiResult.response, aiResult.validation?.errors ?? []);
         return { accepted: true, message, context, announcementId };
       }
       const fields = {
@@ -191,10 +205,66 @@ export class MessageIngestor {
       this.options.onTracer?.(queued.announcementId, tracer);
       return { accepted: true, message, context, announcementId: queued.announcementId };
     }
+
     if (!media?.localPath) throw new Error(`Image-only message ${message.messageId} was not persisted`);
     const announcementId = this.createPassthrough(source.id, message, media.localPath, tracer);
     this.options.onTracer?.(announcementId, tracer);
     return { accepted: true, message, context, announcementId };
+  }
+
+  private createProcessingAnnouncement(
+    announcementId: string,
+    sourceId: string,
+    message: NormalizedInboundMessage,
+    payloadType: 'TEXT' | 'IMAGE_CAPTION',
+    context: AssembledContext,
+    media: { localPath: string; mimeType: string } | null
+  ): void {
+    const quotedId = context.quoted && 'id' in context.quoted ? context.quoted.id : null;
+    const sources = [...new Set(context.sourceMessageIds)].map(sourceMessageId => ({
+      sourceMessageId,
+      role: sourceMessageId === sourceId
+        ? 'primary' as const
+        : sourceMessageId === quotedId
+          ? 'quoted' as const
+          : 'window_context' as const
+    }));
+    this.options.announcements.createWithSources({
+      id: announcementId,
+      primarySourceMessageId: sourceId,
+      sourceTimestampMs: message.timestampMs,
+      classification: 'announcement',
+      evaluationScore: 0,
+      status: 'processing',
+      payloadType,
+      mediaLocalPath: media?.localPath ?? null,
+      mediaMimeType: media?.mimeType ?? message.media?.mimeType ?? null
+    }, sources);
+  }
+
+  private persistFailedTranslations(
+    announcementId: string,
+    response: { English: string | null; Malay: string | null; Tamil: string | null; Mandarin: string | null },
+    errors: readonly string[]
+  ): void {
+    const fields = {
+      en: response.English,
+      ms: response.Malay,
+      ta: response.Tamil,
+      'zh-CN': response.Mandarin
+    } as const;
+    for (const [languageCode, content] of Object.entries(fields) as Array<[LanguageCode, string | null]>) {
+      if (content !== null) {
+        this.translations.insert({
+          id: newId(),
+          announcementId,
+          languageCode,
+          content,
+          validationStatus: 'failed',
+          validationErrorsJson: JSON.stringify(errors)
+        });
+      }
+    }
   }
 
   private contextForAi(context: AssembledContext): string {
