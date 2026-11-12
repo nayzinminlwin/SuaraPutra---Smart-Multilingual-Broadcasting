@@ -54,4 +54,4 @@ operational verification.
 
 ## 6. Commit
 
-**Commit:** Pending final review and commit
+**Commit:** `163a8da` (`test(phase-6.1): close negative path e2e gaps`)
