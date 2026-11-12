@@ -1,0 +1,139 @@
+{
+  "type": "notify",
+  "messages": [
+    {
+      "_comment": "1. GLOBAL CLASSROOM AIESEC - IMAGE WITH CAPTION (Lucus -> Source Group)",
+      "key": {
+        "remoteJid": "$SOURCE_GROUP",
+        "fromMe": false,
+        "id": "SIM_MSG_001",
+        "participant": "60111111001@s.whatsapp.net"
+      },
+      "pushName": "Lucus",
+      "messageTimestamp": 1762880000,
+      "message": {
+        "imageMessage": {
+          "_localImagePath": "simulation/inbox/images/message1.jpg",
+          "mimetype": "image/jpeg",
+          "caption": "🌍✨ Ready to make a difference beyond borders? \n\nJoin Global Classroom , an international volunteering programme with AIESEC! 🇮🇩🚀\n\nFrom delivering interactive lessons to organising fun educational activities, inspire young minds, experience a new culture and create a meaningful impact. 💙\n\n✨ Teach. Connect. Inspire. Make an impact. \n\nReady to make every moment count? ✈️\n \n\n📝 Interest Form: https://www.aiesec.my/global-volunteer\n\n🧳 Know our projects 🥳\nhttps://docs.google.com/presentation/d/1wZKwdJh2XfyctnQSGI3Y0DpYmSzVfY1x_XKBjsIt--c/edit?usp=drivesdk\n\n🤩 Stay connected with us: \n\nTelegram Channel: https://t.me/developwithAUPM\n\nWhatsApp Channel: https://whatsapp.com/channel/0029Vb7vhtpGE56t9v3LX32M"
+        }
+      }
+    },
+    {
+      "_comment": "2. FSKTM 3D PRINTING SURVEY - TEXT-ONLY ANNOUNCEMENT (Marcus -> Source Group)",
+      "key": {
+        "remoteJid": "$SOURCE_GROUP",
+        "fromMe": false,
+        "id": "SIM_MSG_002",
+        "participant": "60111111002@s.whatsapp.net"
+      },
+      "pushName": "Marcus",
+      "messageTimestamp": 1762880060,
+      "message": {
+        "conversation": "Greetings to all students of the Faculty of Computer Science and Information Technology (FSKTM), UPM!\n\nAs part of an initiative to enhance students' academic experience and encourage innovation, a survey is being conducted regarding the PROPOSED 3D PRINTING FACILITIES FOR ACADEMIC PURPOSES AND STUDENT INNOVATION PROJECTS AT FSKTM, UPM.\n\nTherefore, all FSKTM students are encouraged to participate in this survey to help us identify students' needs and demand for 3D Printing facilities, particularly for academic assignments, Final Year Projects (FYP), prototyping and innovation projects. The survey also aims to gather students' opinions on the proposed pricing and payment structure for the facilities.\n\nYour feedback and participation are valuable in strengthening this proposal and supporting the effort to make 3D Printing facilities accessible to FSKTM students.\n\nLet's make this initiative a reality! 👇\n\n🔗 Google Form: https://docs.google.com/forms/d/e/1FAIpQLSdIG82BWwDRFpwujs_uWzJNpj89PqmgNO87eRQnj9UcJCRQ5Q/viewform?usp=publish-editor\n\nThank you for your time and support!\n\n_Faculty of Computer Science and Information Technology_ _Representative_\n_Students’ Union_\n_Universiti Putra Malaysia_\n_2026/2027 Academic Session_"
+      }
+    },
+    {
+      "_comment": "3. DEEPAVALI GREETING BILINGUAL - IMAGE WITH CAPTION (Raveen -> Source Group)",
+      "key": {
+        "remoteJid": "$SOURCE_GROUP",
+        "fromMe": false,
+        "id": "SIM_MSG_003",
+        "participant": "60111111003@s.whatsapp.net"
+      },
+      "pushName": "Raveen",
+      "messageTimestamp": 1762880120,
+      "message": {
+        "imageMessage": {
+          "_localImagePath": "simulation/inbox/images/message3.jpg",
+          "mimetype": "image/jpeg",
+          "caption": "✨🪔Selamat Menyambut Hari Deepavali🪔✨\n\nAssalammualaikum, Salam Sejahtera\nSalam #WeLoveUPM\n\nMajlis Perwakilan Fakulti Sains Komputer dan Teknologi Maklumat (ComCil) ingin mengucapkan Selamat Menyambut Hari Deepavali untuk semua pelajar terutamanya pelajar beragama Hindu Fakulti Sains Komputer dan Teknologi Maklumat, Universiti Putra Malaysia (UPM).\n\nSemoga keindahan cahaya Deepavali menyinari hari-hari anda dengan kegembiraan, kedamaian dan rezeki yang melimpah. Semoga nyalaan pelita mengingatkan kita bahawa sinar harapan akan sentiasa mengatasi segala kegelapan. 🪔\n\nSemoga perayaan ini membawa kebahagiaan dan berkat buat anda serta insan tersayang. 🌸\n\nMajlis Perwakilan Fakulti (Comcil)\nFakulti Sains Komputer dan Teknologi Maklumat\nUniversiti Putra Malaysia\nSesi Akademik 2026/2027\n___________\n\n✨🪔 Happy Deepavali 🪔✨\n\nAssalammualaikum, Greetings and \nSalam #WeLoveUPM\n\nThe Faculty of Computer Science and Information Technology Student Council (ComCil) would like to extend our warmest wishes for a Happy Deepavali to all students, especially our Hindu students of the Faculty of Computer Science and Information Technology, Universiti Putra Malaysia (UPM).\n\n May the beauty of Deepavali’s lights brighten your days with joy, peace, and abundant blessings. May the glow of the oil lamps remind us that hope and light will always overcome darkness. 🪔\n\n May this festive celebration bring happiness, prosperity, and blessings to you and your loved ones. 🌸\n\nFaculty Representative Council (Comcil)\nFaculty of Computer Science and Information Technology\nUniversiti Putra Malaysia\nAcademic Session 2026/2027"
+        }
+      }
+    },
+    {
+      "_comment": "4. INDUSTRY SHARING - IMAGE WITH CAPTION (Ismail -> Source Group)",
+      "key": {
+        "remoteJid": "$SOURCE_GROUP",
+        "fromMe": false,
+        "id": "SIM_MSG_004",
+        "participant": "60111111004@s.whatsapp.net"
+      },
+      "pushName": "Ismail",
+      "messageTimestamp": 1762880180,
+      "message": {
+        "imageMessage": {
+          "_localImagePath": "simulation/inbox/images/message4.jpg",
+          "mimetype": "image/jpeg",
+          "caption": "💻🚀 INDUSTRY SHARING: DIVE INTO REAL WORKING ENVIRONMENT 🚀💼\n\nEver wondered what it is really like to work in the professional world? 👀 What are the challenges, expectations and experiences that await you after graduation?\n\nGet ready to explore the realities of the working world through an insightful industry sharing session with an industry professional! ✨\n\n🎤 SPECIAL GUEST SPEAKER\nDanial Hakim\nSoftware Engineer, Bina Cloudtech\n\nWHAT YOU WILL GAIN 🔥\n💡 Gain valuable insights into the real working environment.\n💼 Understand industry expectations and professional challenges.\n🚀 Discover how to prepare yourself for your future career.\n\nPROGRAMME DETAILS 📌\n📅 Date: 26 November 2026 (Thursday)\n⏰ Time: 2.00 PM – 4.30 PM\n📍 Venue: Dewan Abdul Azim (DAA), FSKTM, UPM\n\n🎓 MERIT AND EXEMPTION LETTER WILL BE PROVIDED TO ALL PARTICIPANTS!\n\n📢 IMPORTANT NOTICE:\nExemption application deadline: 11.59 PM, 10 November 2026 (Tuesday). \nPlease ensure that your application is submitted before the deadline.\n\n📝 REGISTER NOW!\nhttps://forms.gle/iLA3DLdsxK55mF7x9\n\nDon’t miss this opportunity to gain industry exposure, broaden your perspectives and discover what awaits you beyond university! 🚀\n\n📩 For any enquiries, please contact:\nAnis: https://wasap.my/60179610914\nSufia: https://wasap.my/601162109295\n\n#IndustrySharing #WorkEnviroment #FutureWork #NewExperience #Technology #CSClubUPM"
+        }
+      }
+    },
+    {
+      "_comment": "5. PUTRA VOTING MEME - IMAGE WITH SHORT CAPTION (MeowMeow -> Source Group)",
+      "key": {
+        "remoteJid": "$SOURCE_GROUP",
+        "fromMe": false,
+        "id": "SIM_MSG_005",
+        "participant": "60111111005@s.whatsapp.net"
+      },
+      "pushName": "MeowMeow",
+      "messageTimestamp": 1762880240,
+      "message": {
+        "imageMessage": {
+          "_localImagePath": "simulation/inbox/images/message5.jpg",
+          "mimetype": "image/jpeg",
+          "caption": "even mimi voted, lets vote guysss!!\nhttps://putravoting.upm.edu.my/ jom2"
+        }
+      }
+    },
+    {
+      "_comment": "6. CASUAL CHAT NOISE (Alex -> Source Group, Should score < 4.0 and be ignored)",
+      "key": {
+        "remoteJid": "$SOURCE_GROUP",
+        "fromMe": false,
+        "id": "SIM_MSG_006",
+        "participant": "60111111006@s.whatsapp.net"
+      },
+      "pushName": "Alex",
+      "messageTimestamp": 1762880300,
+      "message": {
+        "conversation": "yoooo! Whats up guys!"
+      }
+    },
+    {
+      "_comment": "7. DIRECT INBOX / DM MESSAGE (Alex -> Bot Direct Inbox, Out-of-scope Gate 1 check)",
+      "key": {
+        "remoteJid": "60111111006@s.whatsapp.net",
+        "fromMe": false,
+        "id": "SIM_MSG_007"
+      },
+      "pushName": "Alex",
+      "messageTimestamp": 1762880360,
+      "message": {
+        "imageMessage": {
+          "_localImagePath": "simulation/inbox/images/message4.jpg",
+          "mimetype": "image/jpeg",
+          "caption": "💻🚀 INDUSTRY SHARING: DIVE INTO REAL WORKING ENVIRONMENT 🚀💼\n\nEver wondered what it is really like to work in the professional world? 👀 What are the challenges, expectations and experiences that await you after graduation?\n\nGet ready to explore the realities of the working world through an insightful industry sharing session with an industry professional! ✨\n\n🎤 SPECIAL GUEST SPEAKER\nDanial Hakim\nSoftware Engineer, Bina Cloudtech\n\nWHAT YOU WILL GAIN 🔥\n💡 Gain valuable insights into the real working environment.\n💼 Understand industry expectations and professional challenges.\n🚀 Discover how to prepare yourself for your future career.\n\nPROGRAMME DETAILS 📌\n📅 Date: 26 November 2026 (Thursday)\n⏰ Time: 2.00 PM – 4.30 PM\n📍 Venue: Dewan Abdul Azim (DAA), FSKTM, UPM\n\n🎓 MERIT AND EXEMPTION LETTER WILL BE PROVIDED TO ALL PARTICIPANTS!\n\n📢 IMPORTANT NOTICE:\nExemption application deadline: 11.59 PM, 10 November 2026 (Tuesday). \nPlease ensure that your application is submitted before the deadline.\n\n📝 REGISTER NOW!\nhttps://forms.gle/iLA3DLdsxK55mF7x9\n\nDon’t miss this opportunity to gain industry exposure, broaden your perspectives and discover what awaits you beyond university! 🚀\n\n📩 For any enquiries, please contact:\nAnis: https://wasap.my/60179610914\nSufia: https://wasap.my/601162109295\n\n#IndustrySharing #WorkEnviroment #FutureWork #NewExperience #Technology #CSClubUPM"
+        }
+      }
+    },
+    {
+      "_comment": "8. IMAGE-ONLY POST (Ratha -> Source Group, No caption -> Zero-AI direct binary forward)",
+      "key": {
+        "remoteJid": "$SOURCE_GROUP",
+        "fromMe": false,
+        "id": "SIM_MSG_008",
+        "participant": "60111111007@s.whatsapp.net"
+      },
+      "pushName": "Ratha",
+      "messageTimestamp": 1762880420,
+      "message": {
+        "imageMessage": {
+          "_localImagePath": "simulation/inbox/images/message6.jpg",
+          "mimetype": "image/jpeg"
+        }
+      }
+    }
+  ]
+}

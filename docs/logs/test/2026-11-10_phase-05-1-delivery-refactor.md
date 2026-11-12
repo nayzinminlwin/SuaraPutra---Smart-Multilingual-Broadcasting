@@ -346,3 +346,18 @@ git diff --check
 **Results:** Focused delivery/database suites passed with 30 tests. FIFO
 contract alignment was documentation-only and was subsequently synchronized
 with the architecture and project plan.
+
+---
+
+## Retry-Backoff FIFO Correction Test Entry
+
+**Date:** 2026-11-11 21:16
+**Status:** PASSED
+
+| ID | Scenario | Expected result | Status |
+|---|---|---|---|
+| QA-FIFO-01 | Earlier same-target job in future `retry_wait` | Later job remains blocked | PASS |
+| QA-FIFO-02 | Earlier retry becomes `failed_permanent` | Later job becomes claimable | PASS |
+
+**Verification:** Focused delivery suite passed with 23 tests. Build, lint,
+and `git diff --check` passed.

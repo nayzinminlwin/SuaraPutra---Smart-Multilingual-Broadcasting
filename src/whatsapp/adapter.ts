@@ -1,7 +1,10 @@
+import type { PipelineTracer } from '../observability/telemetry.js';
+
 export type SupportedMessageKind = 'TEXT' | 'IMAGE_CAPTION' | 'IMAGE_ONLY' | 'UNSUPPORTED';
 export type ConnectionStatus = 'connecting' | 'open' | 'close' | 'logged_out';
 
 export interface NormalizedInboundMessage {
+  tracer?: PipelineTracer;
   chatJid: string;
   messageId: string;
   senderJid: string;

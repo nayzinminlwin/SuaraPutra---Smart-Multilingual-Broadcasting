@@ -70,6 +70,27 @@ export class AnnouncementRepository {
     if (result.changes !== 1) throw new Error(`Announcement not found: ${id}`);
   }
 
+  updateOutcome(
+    id: string,
+    outcome: Pick<AnnouncementInput, 'classification' | 'evaluationScore' | 'status'> & {
+      rawAiResponseJson?: string | null;
+    }
+  ): void {
+    const result = this.client.prepare(`
+      UPDATE announcements
+      SET classification = ?, evaluation_score = ?, status = ?, raw_ai_response_json = ?,
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE id = ?
+    `).run(
+      outcome.classification,
+      outcome.evaluationScore,
+      outcome.status,
+      outcome.rawAiResponseJson ?? null,
+      id
+    );
+    if (result.changes !== 1) throw new Error(`Announcement not found: ${id}`);
+  }
+
   findInterrupted(): Announcement[] {
     const rows = this.client.prepare(`
       SELECT * FROM announcements WHERE status = 'processing'

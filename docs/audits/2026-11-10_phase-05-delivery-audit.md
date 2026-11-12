@@ -282,9 +282,10 @@ documentation gate
 
 **Architecture decision:** Phase 5.1 uses destination-aware FIFO rather than
 the stronger global barrier recommended in the original audit. Active
-`pending`, `sending`, and eligible `retry_wait` work blocks later work only
-for the same trusted target JID. `uncertain` is held for reconciliation and
-does not block other destinations. This is recorded in the approved
+`pending`, `sending`, and all `retry_wait` work blocks later work only for the
+same trusted target JID, including during retry backoff. `uncertain` is held
+for reconciliation and does not block other destinations. This is recorded in
+the approved
 [Phase 5.1 plan](../phase-05-1-plan.md) and is an intentional weakening of
 global chronological ordering to preserve independent language progress.
 
@@ -370,3 +371,21 @@ remediated:
 Focused reliability verification passed with 30 tests across the delivery and
 database suites. FIFO contract alignment remains intentionally deferred to the
 next architecture update.
+
+---
+
+## Retry-Backoff FIFO Correction
+
+**Audit date:** 2026-11-11
+**Scope:** Same-destination ordering while an earlier job is in `retry_wait`
+
+The destination-aware barrier now treats every earlier `retry_wait` job as
+active, including jobs whose `next_attempt_at` is still in the future. This
+prevents a later job for the same destination from overtaking an earlier
+transient failure during its backoff window. The earlier job's own
+`next_attempt_at` still controls when it may be claimed again; the barrier is
+released when it reaches a terminal state such as `sent`, `failed_permanent`,
+or `cancelled`.
+
+Focused delivery verification passed with 23 tests, including the backoff
+overtake regression case.

@@ -26,6 +26,8 @@ export class DeliveryDispatcher {
   private readonly retryPolicy: RetryPolicy;
   private readonly mediaCache = new Map<string, MediaCacheEntry>();
   private lastDispatchAt = 0;
+  private activeDispatchPromise: Promise<'paused' | 'idle' | 'sent' | 'failed' | 'uncertain'> | null = null;
+  private stopping = false;
 
   constructor(private readonly options: DispatcherOptions) {
     this.pacingMs = options.pacingMs ?? 1500;
@@ -34,6 +36,37 @@ export class DeliveryDispatcher {
   }
 
   async dispatchOnce(): Promise<'paused' | 'idle' | 'sent' | 'failed' | 'uncertain'> {
+    if (this.stopping) return 'idle';
+    if (this.activeDispatchPromise) return this.activeDispatchPromise;
+    const dispatchPromise = this.dispatchNext();
+    this.activeDispatchPromise = dispatchPromise;
+    try {
+      return await dispatchPromise;
+    } finally {
+      if (this.activeDispatchPromise === dispatchPromise) this.activeDispatchPromise = null;
+    }
+  }
+
+  async stopAndDrain(timeoutMs: number): Promise<boolean> {
+    this.stopping = true;
+    const active = this.activeDispatchPromise;
+    if (!active) return true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const drained = await Promise.race([
+        active.then(() => true, () => true),
+        new Promise<boolean>(resolve => {
+          timer = setTimeout(() => resolve(false), timeoutMs);
+          timer.unref?.();
+        })
+      ]);
+      return drained;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private async dispatchNext(): Promise<'paused' | 'idle' | 'sent' | 'failed' | 'uncertain'> {
     if (this.options.killSwitch) return 'paused';
     const job = this.options.queue.claimNext(`dispatcher-${randomUUID()}`);
     if (!job) return 'idle';

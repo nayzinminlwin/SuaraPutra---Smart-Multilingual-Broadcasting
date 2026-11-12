@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { WhatsAppAmbiguousTimeoutError, WhatsAppInvalidInputError, WhatsAppPermanentError, WhatsAppTransientError } from '../../src/whatsapp/errors.js';
@@ -57,6 +59,8 @@ describe('Phase 2 WhatsApp transport and mock adapter', () => {
       expect.stringContaining('[CP01_INGEST_NORMALIZE] DONE'),
       expect.objectContaining({ t_wa_source_sent_ms: 1794227520000 })
     );
+    expect(result.tracer?.getCheckpoints().map(checkpoint => checkpoint.name))
+      .toEqual(['CP01_INGEST_NORMALIZE']);
     spy.mockRestore();
   });
 
@@ -84,5 +88,31 @@ describe('Phase 2 WhatsApp transport and mock adapter', () => {
     await expect(adapter.sendMessage('120000000001@g.us', { type: 'TEXT', text: 'first' })).resolves.toBeDefined();
     await expect(adapter.sendMessage('120000000002@g.us', { type: 'TEXT', text: 'second' }))
       .rejects.toBeInstanceOf(WhatsAppPermanentError);
+  });
+
+  it('writes file-backed text and image outbox entries', async () => {
+    const outboxDir = await mkdtemp(join(tmpdir(), 'suara-putra-outbox-'));
+    try {
+      const adapter = new MockWhatsAppAdapter({
+        fileOutboxDir: outboxDir,
+        groupJidToLanguageMap: { '120000000001@g.us': 'en' }
+      });
+      await adapter.sendMessage('120000000001@g.us', { type: 'TEXT', text: 'synthetic text' });
+      await adapter.sendMessage('120000000001@g.us', {
+        type: 'IMAGE',
+        imageBuffer: image,
+        mimeType: 'image/jpeg',
+        caption: 'synthetic caption'
+      });
+      const groupEntries = JSON.parse(await readFile(join(outboxDir, 'groups', 'en.json'), 'utf8')) as Array<Record<string, unknown>>;
+      const broadcastEntries = JSON.parse(await readFile(join(outboxDir, 'broadcast-log.json'), 'utf8')) as Array<Record<string, unknown>>;
+      expect(groupEntries).toHaveLength(2);
+      expect(broadcastEntries).toHaveLength(2);
+      expect(groupEntries[0]).toMatchObject({ payloadType: 'TEXT', text: 'synthetic text', language: 'en' });
+      expect(groupEntries[1].savedMediaPath).toBe('media/en/2_' + groupEntries[1].outgoingMessageId + '.jpg');
+      await expect(readFile(join(outboxDir, groupEntries[1].savedMediaPath as string))).resolves.toEqual(image);
+    } finally {
+      await rm(outboxDir, { recursive: true, force: true });
+    }
   });
 });

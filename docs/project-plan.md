@@ -443,7 +443,7 @@ Implement the static language-to-group router (`src/routing/message-router.ts`),
 2. **Persistent FIFO Queue & Crash Lease Recovery (`src/delivery/queue.ts`):**
    * Instrument `CP07_QUEUE_PERSIST` ($\mu\text{s}$) around the atomic SQLite transaction that updates `announcements.status = 'queued'`, inserts the 4 `translations`, and inserts the 4 FIFO `delivery_jobs` (`source_timestamp_ms`, `announcement_seq`, `language_order`).
    * Implement atomic destination-aware lease acquisition (`pending`/`retry_wait` $\rightarrow$ `sending` with 45-second `lease_expires_at`) ordered by `source_timestamp_ms ASC, announcement_seq ASC, language_order ASC`, with an earlier-job barrier scoped to the same trusted destination JID.
-   * Keep `pending`, `sending`, and eligible `retry_wait` jobs blocking later work for the same destination; allow `sent`, `failed_permanent`, `cancelled`, and `uncertain` jobs to leave the queue moving.
+   * Keep `pending`, `sending`, and all `retry_wait` jobs blocking later work for the same destination, including during backoff; release the barrier when the earlier job reaches `sent`, `failed_permanent`, or `cancelled`, while `uncertain` remains non-blocking.
    * Implement `recoverOrphanedJobs()` on startup and every 60s: any job stuck in `sending` past `lease_expires_at` transitions to `uncertain` (`LEASE_EXPIRED_CRASH`) and logs a `CRITICAL` event without auto-retrying.
 3. **Retry Policy (`src/delivery/retry-policy.ts`):**
    * Classify transport errors:

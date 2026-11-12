@@ -6,7 +6,12 @@ import { DatabaseClient } from '../../src/database/client.js';
 import { MigrationRunner } from '../../src/database/migrator.js';
 import { AnnouncementRepository } from '../../src/database/repositories/announcement.repo.js';
 import { DeliveryJobRepository } from '../../src/database/repositories/delivery-job.repo.js';
+import { DeliveryQueue } from '../../src/delivery/queue.js';
 import { SourceMessageRepository } from '../../src/database/repositories/source-message.repo.js';
+import { TranslationRepository } from '../../src/database/repositories/translation.repo.js';
+import { AiProcessor } from '../../src/ai/ai-processor.js';
+import { MockModelProvider } from '../../src/ai/model-provider.js';
+import type { ModelGenerateRequest } from '../../src/ai/model-provider.js';
 import { ContextAssembler } from '../../src/ingestion/context-assembler.js';
 import { MediaStore } from '../../src/ingestion/media-store.js';
 import { MessageIngestor } from '../../src/ingestion/message-ingestor.js';
@@ -32,28 +37,46 @@ describe('Phase 3 ingestion pipeline', () => {
     }
   });
 
-  function createIngestor() {
+  function createIngestor(
+    aiProcessor?: AiProcessor,
+    botJidProvider?: () => string | null
+  ) {
     const directory = mkdtempSync(join(tmpdir(), 'suaraputra-phase3-'));
     const client = new DatabaseClient(join(directory, 'test.sqlite'));
     new MigrationRunner(client).migrate();
     resources.push({ client, directory });
     const sources = new SourceMessageRepository(client);
+    const announcements = new AnnouncementRepository(client);
+    const jobs = new DeliveryJobRepository(client);
+    const queue = new DeliveryQueue(client, announcements, new TranslationRepository(client), jobs, destinationGroups);
     return {
       directory,
       client,
       sources,
       ingestor: new MessageIngestor({
         sourceGroupJid: sourceJid,
-        botJid: '60100000000@s.whatsapp.net',
+        botJid: botJidProvider ? undefined : '60100000000@s.whatsapp.net',
+        botJidProvider,
         contextMaxMessages: 5,
         contextWindowSeconds: 300,
         destinationGroups,
         mediaStore: new MediaStore(join(directory, 'media'), 1024 * 1024),
         sources,
-        announcements: new AnnouncementRepository(client),
-        deliveryJobs: new DeliveryJobRepository(client),
-        database: client
+        announcements,
+        deliveryJobs: jobs,
+        database: client,
+        aiProcessor,
+        deliveryQueue: queue
       })
+    };
+  }
+
+  function textMessage(messageId: string, timestampMs = 1794227520000): NormalizedInboundMessage {
+    return {
+      chatJid: sourceJid, messageId, senderJid: '60100000001@s.whatsapp.net',
+      senderPushName: null, fromMe: false, timestampMs, kind: 'TEXT',
+      text: 'Community notice https://upm.edu.my/notice', quotedMessageId: null,
+      quotedParticipantJid: null, quotedText: null, media: null, rawPayloadJson: '{}'
     };
   }
 
@@ -71,6 +94,18 @@ describe('Phase 3 ingestion pipeline', () => {
     expect((await ingestor.enqueue(base)).accepted).toBe(true);
     expect((await ingestor.enqueue(base)).reason).toBe('duplicate');
     expect(sources.findById('does-not-exist')).toBeNull();
+  });
+
+  it('resolves the current bot JID dynamically for self-echo filtering', async () => {
+    let currentBotJid: string | null = null;
+    const { ingestor } = createIngestor(undefined, () => currentBotJid);
+    const message = textMessage('dynamic-bot');
+    currentBotJid = message.senderJid;
+
+    expect((await ingestor.enqueue(message)).reason).toBe('self_echo');
+
+    currentBotJid = '60100000002@s.whatsapp.net';
+    expect((await ingestor.enqueue({ ...message, messageId: 'after-connect' })).accepted).toBe(true);
   });
 
   it('uses the architecture-defined content hash formulas', async () => {
@@ -101,6 +136,55 @@ describe('Phase 3 ingestion pipeline', () => {
     expect(readFileSync(join(directory, 'media', 'fixture-07-caption.jpg')).byteLength).toBeGreaterThan(0);
     expect(readFileSync(join(directory, 'media', 'fixture-07-image.jpg')).byteLength).toBeGreaterThan(0);
     expect(client.database.prepare('SELECT COUNT(*) AS count FROM delivery_jobs').get()).toEqual({ count: 4 });
+  });
+
+  it('reuses the normalizer tracer and sorts pending messages by timestamp', async () => {
+    let markFirstStarted: (() => void) | undefined;
+    let releaseFirst: (() => void) | undefined;
+    const firstStarted = new Promise<void>(resolve => { markFirstStarted = resolve; });
+    const firstRelease = new Promise<void>(resolve => { releaseFirst = resolve; });
+    let calls = 0;
+    const processor = new AiProcessor({
+      provider: new MockModelProvider([(request: ModelGenerateRequest) => {
+        calls += 1;
+        if (calls === 1) {
+          markFirstStarted?.();
+          return firstRelease.then(() => ({
+            id: request.id, score: 8,
+            English: 'Notice https://upm.edu.my/notice',
+            Malay: 'Notis https://upm.edu.my/notice',
+            Tamil: 'அறிவிப்பு https://upm.edu.my/notice',
+            Mandarin: '通知 https://upm.edu.my/notice'
+          }));
+        }
+        return {
+          id: request.id, score: 8,
+          English: 'Notice https://upm.edu.my/notice',
+          Malay: 'Notis https://upm.edu.my/notice',
+          Tamil: 'அறிவிப்பு https://upm.edu.my/notice',
+          Mandarin: '通知 https://upm.edu.my/notice'
+        };
+      }]),
+      sleep: async () => undefined
+    });
+    const { ingestor, client } = createIngestor(processor);
+    const first = ingestor.enqueue(textMessage('slow-first', 3000));
+    await firstStarted;
+    const early = ingestor.enqueue(textMessage('early-pending', 1000));
+    const middle = ingestor.enqueue(textMessage('middle-pending', 2000));
+    releaseFirst?.();
+    const results = await Promise.all([first, early, middle]);
+
+    expect(results.every(result => result.accepted)).toBe(true);
+    expect(client.database.prepare(
+      'SELECT message_id FROM source_messages ORDER BY ingestion_seq ASC'
+    ).all()).toEqual([
+      { message_id: 'slow-first' },
+      { message_id: 'early-pending' },
+      { message_id: 'middle-pending' }
+    ]);
+    expect(results[0].message.tracer?.getCheckpoints().map(checkpoint => checkpoint.name))
+      .toContain('CP02_FIFO_WAIT');
   });
 
   it('serializes a chronological burst and preserves bounded quoted context', async () => {
@@ -138,5 +222,79 @@ describe('Phase 3 ingestion pipeline', () => {
     expect(context.quoted).toMatchObject({ id: 'original', textContent: 'Original notice' });
     expect(context.sourceMessageIds).toContain('original');
     expect(client.database.prepare('SELECT COUNT(*) AS count FROM source_messages').get()).toEqual({ count: 1 });
+  });
+
+  it('durably records ignored AI results with the primary source and no delivery jobs', async () => {
+    const id = 'ignored-durable';
+    const processor = new AiProcessor({
+      provider: new MockModelProvider([(request: ModelGenerateRequest) => ({
+        id: request.id,
+        score: 2,
+        English: null,
+        Malay: null,
+        Tamil: null,
+        Mandarin: null
+      })]),
+      sleep: async () => undefined
+    });
+    const { ingestor, client } = createIngestor(processor);
+
+    await ingestor.enqueue(textMessage(id));
+
+    expect(client.database.prepare(
+      'SELECT classification, evaluation_score, status FROM announcements'
+    ).get()).toEqual({ classification: 'not_announcement', evaluation_score: 2, status: 'ignored' });
+    expect(client.database.prepare(
+      "SELECT role FROM announcement_sources WHERE role = 'primary'"
+    ).get()).toEqual({ role: 'primary' });
+    expect(client.database.prepare('SELECT COUNT(*) AS count FROM delivery_jobs').get()).toEqual({ count: 0 });
+  });
+
+  it('holds exhausted provider failures without masking them as missing announcements', async () => {
+    const processor = new AiProcessor({
+      provider: new MockModelProvider([], [
+        Object.assign(new Error('Service Unavailable'), { status: 503 }),
+        Object.assign(new Error('Service Unavailable'), { status: 503 }),
+        Object.assign(new Error('Service Unavailable'), { status: 503 })
+      ]),
+      sleep: async () => undefined
+    });
+    const { ingestor, client } = createIngestor(processor);
+
+    await expect(ingestor.enqueue(textMessage('provider-held'))).resolves.toMatchObject({ accepted: true });
+
+    expect(client.database.prepare('SELECT status FROM announcements').get()).toEqual({
+      status: 'held_validation_failed'
+    });
+    expect(client.database.prepare('SELECT COUNT(*) AS count FROM delivery_jobs').get()).toEqual({ count: 0 });
+  });
+
+  it('persists returned translations as failed when validation remains invalid', async () => {
+    const invalid = {
+      id: 'placeholder',
+      score: 8,
+      English: 'Notice without the required URL',
+      Malay: 'Notis tanpa URL diperlukan',
+      Tamil: 'தேவையான URL இல்லாத அறிவிப்பு',
+      Mandarin: '缺少所需网址的通知'
+    };
+    const processor = new AiProcessor({
+      provider: new MockModelProvider([
+        (request: ModelGenerateRequest) => ({ ...invalid, id: request.id }),
+        (request: ModelGenerateRequest) => ({ ...invalid, id: request.id })
+      ]),
+      sleep: async () => undefined
+    });
+    const { ingestor, client } = createIngestor(processor);
+
+    await ingestor.enqueue(textMessage('validation-held'));
+
+    expect(client.database.prepare(
+      "SELECT status FROM announcements WHERE status = 'held_validation_failed'"
+    ).get()).toEqual({ status: 'held_validation_failed' });
+    expect(client.database.prepare(
+      "SELECT COUNT(*) AS count FROM translations WHERE validation_status = 'failed'"
+    ).get()).toEqual({ count: 4 });
+    expect(client.database.prepare('SELECT COUNT(*) AS count FROM delivery_jobs').get()).toEqual({ count: 0 });
   });
 });

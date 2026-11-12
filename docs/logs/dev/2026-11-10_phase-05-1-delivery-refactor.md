@@ -188,8 +188,8 @@ remain assigned to later Phase 5.1 partitions.
 **Implementation summary:**
 
 - Added a per-target earlier-job barrier to polling and atomic claiming.
-- Active `pending`, `sending`, and eligible `retry_wait` jobs block later work
-  for the same trusted target JID.
+- Active `pending`, `sending`, and all `retry_wait` jobs block later work for
+  the same trusted target JID, including during retry backoff.
 - `sent`, `failed_permanent`, `cancelled`, and `uncertain` jobs do not block
   later work.
 - A future-ineligible retry wait does not prevent independent destinations
@@ -390,3 +390,19 @@ diff checks passed.
 
 **Follow-up:** FIFO contract alignment was subsequently documented in the
 architecture and project plan. No implementation change was required.
+
+---
+
+## Retry-Backoff FIFO Correction
+
+**Date:** 2026-11-11 21:16
+**Status:** Complete
+
+The queue barrier now keeps all earlier same-destination `retry_wait` jobs
+active during backoff. Later work cannot overtake the retry; the retry's own
+`next_attempt_at` only controls when it becomes claimable. Added a deterministic
+regression test covering the future-backoff and `failed_permanent` release
+paths.
+
+**Verification:** Focused delivery tests passed (23); build, lint, and diff
+checks passed.

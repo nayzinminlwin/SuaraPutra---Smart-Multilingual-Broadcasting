@@ -10,3 +10,4 @@ private/
 *.sqlite-*
 coverage/
 *.log
+simulation/outbox/

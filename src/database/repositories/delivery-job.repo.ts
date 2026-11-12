@@ -88,13 +88,7 @@ export class DeliveryJobRepository {
                 AND earlier.language_order < candidate.language_order
               )
             )
-            AND (
-              earlier.status IN ('pending', 'sending')
-              OR (
-                earlier.status = 'retry_wait'
-                AND earlier.next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-              )
-            )
+            AND earlier.status IN ('pending', 'sending', 'retry_wait')
         )
       ORDER BY candidate.source_timestamp_ms ASC, candidate.announcement_seq ASC,
         candidate.language_order ASC LIMIT 1

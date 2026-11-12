@@ -20,8 +20,8 @@ export class ContextAssembler {
     if (!Number.isInteger(windowSeconds) || windowSeconds <= 0) throw new Error('Context windowSeconds must be positive');
   }
 
-  assemble(message: NormalizedInboundMessage, persisted: SourceMessage): AssembledContext {
-    const tracer = new PipelineTracer({
+  assemble(message: NormalizedInboundMessage, persisted: SourceMessage, pipelineTracer?: PipelineTracer): AssembledContext {
+    const tracer = pipelineTracer ?? new PipelineTracer({
       messageId: message.messageId,
       waSourceSentTimestampMs: message.timestampMs
     });

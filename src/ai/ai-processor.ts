@@ -18,6 +18,7 @@ export interface AiProcessInput extends TranslationPromptInput {
   sourceText?: string;
   traceId?: string;
   announcementId?: string;
+  tracer?: PipelineTracer;
 }
 
 export type AiProcessStatus = 'ignored' | 'translated' | 'held_validation_failed';
@@ -51,7 +52,7 @@ export class AiProcessor {
   }
 
   async process(input: AiProcessInput): Promise<AiProcessResult> {
-    const tracer = new PipelineTracer({
+    const tracer = input.tracer ?? new PipelineTracer({
       traceId: input.traceId,
       messageId: input.id,
       waSourceSentTimestampMs: Date.now()
@@ -60,7 +61,7 @@ export class AiProcessor {
     let providerResult: { value: unknown; attempts: number };
     try {
       providerResult = await this.generateWithRetry(
-        { prompt, id: input.id, type: input.type },
+        { prompt, id: input.id, type: input.type, content: input.content },
         tracer
       );
     } catch (error) {
@@ -102,7 +103,7 @@ export class AiProcessor {
     let regenerated: { value: unknown; attempts: number };
     try {
       regenerated = await this.generateWithRetry(
-        { prompt: retryPrompt, id: input.id, type: input.type, validationFeedback: validation.errors },
+        { prompt: retryPrompt, id: input.id, type: input.type, content: input.content, validationFeedback: validation.errors },
         tracer
       );
     } catch (error) {
@@ -228,9 +229,6 @@ export class AiProcessor {
   }
 
   private markHeld(input: AiProcessInput, errors: readonly string[]): void {
-    if (input.announcementId && this.options.announcements) {
-      this.options.announcements.updateStatus(input.announcementId, 'held_validation_failed');
-    }
     this.options.eventLogs?.append({
       eventType: 'AI_PROCESS_FAILED',
       relatedEntityType: input.announcementId ? 'announcement' : 'source_message',

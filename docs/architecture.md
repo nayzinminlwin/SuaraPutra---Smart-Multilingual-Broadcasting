@@ -2,8 +2,8 @@
 
 **Project Name:** SuaraPutra — Smart Multilingual Broadcasting  
 **Document Path:** `docs/architecture.md`  
-**Version:** 1.0.0  
-**Last Updated:** 11 November 2026
+**Version:** 1.1.0  
+**Last Updated:** 12 November 2026  
 **Status:** Approved & Authoritative Source of Truth  
 **Target Readers:** Core Maintainers, Autonomous Coding Agents (GPT 5.6 Luna, `developer.agent`, `tester.agent`, `web_developer.agent`)  
 
@@ -12,7 +12,7 @@
 ## 1. Executive Summary & Architectural Authority
 
 ### 1.1 Purpose of This Document
-This document is the **single authoritative technical Source of Truth** for **SuaraPutra — Smart Multilingual Broadcasting**. All implementation code, database migrations, prompt templates, synthetic fixtures, test suites, and deployment scripts across Week 1 (Milestones 1–6) and Week 2 (Milestone 7) must strictly conform to the interfaces, schemas, state machines, and invariants defined herein.
+This document is the **single authoritative technical Source of Truth** for **SuaraPutra — Smart Multilingual Broadcasting**. All implementation code, database migrations, prompt templates, synthetic fixtures, live simulation scripts, test suites, and deployment scripts across Week 1 (Milestones 1–6.1) and Week 2 (Milestone 7) must strictly conform to the interfaces, schemas, state machines, and invariants defined herein.
 
 In the event of any conflict between exploratory planning documents and this specification, **this document (`docs/architecture.md`) and `docs/DECISIONS.md` take absolute precedence**.
 
@@ -20,21 +20,21 @@ In the event of any conflict between exploratory planning documents and this spe
 SuaraPutra monitors a single configured WhatsApp source group inside an existing WhatsApp Community, ingests incoming messages (`TEXT`, `IMAGE_CAPTION`, and `IMAGE_ONLY`) in strict chronological FIFO order, uses **Gemini 3.8 Flash (`gemini-3.8-flash`)** in a single unified call to evaluate text announcement worthiness (`1.0–10.0`) and translate or separate content across **four target languages** (Malay `ms`, English `en`, Mandarin `zh-CN`, and Tamil `ta`), validates critical URLs and output integrity in TypeScript, and broadcasts each language version to its dedicated WhatsApp Community destination group using destination-aware FIFO ordering.
 
 ### 1.3 Core Architectural Invariants
-1. **Strict Transport Decoupling (Mock-First):** Core domain modules (`ingestion`, `ai`, `validation`, `routing`, `delivery`, `database`) must **never** import `@whiskeysockets/baileys` directly. All WhatsApp interactions occur exclusively through the `IWhatsAppAdapter` interface.
+1. **Strict Transport Decoupling (Mock-First & File-Backed Simulation):** Core domain modules (`ingestion`, `ai`, `validation`, `routing`, `delivery`, `database`) must **never** import `@whiskeysockets/baileys` directly. All WhatsApp interactions occur exclusively through the `IWhatsAppAdapter` interface, enabling both in-memory unit testing and 95% live file-backed Gemini simulations (`npm run simulate:live`) without a physical SIM card.
 2. **Default Image Forwarding & Three-Path Routing (Zero-OCR Policy):** Image Optical Character Recognition (OCR) is strictly out of scope. All image messages (`IMAGE_ONLY` and `IMAGE_CAPTION`) are forwarded by default without AI worthiness evaluation:
    - `IMAGE_ONLY`: Direct binary passthrough $\rightarrow$ outbound original image buffer forwarded to all four destination groups with **zero AI invocation**.
    - `IMAGE_CAPTION`: Raw image buffer saved locally (and immediately freed from in-flight RAM) + caption sent to **Gemini 3.8 Flash (`Type: TEXT CAPTION FROM IMAGE`)** for direct 4-language translation/separation $\rightarrow$ outbound original image buffer paired with the respective translated caption per destination group.
-   - `TEXT`: Sent to **Gemini 3.8 Flash (`Type: TEXT-MESSAGE`)**, which scores announcement worthiness on a `1.0–10.0` scale. If `score < 4.0`, the model returns `null` for all language fields and the message is ignored. If `score >= 4.0`, the model returns all 4 language versions (`English`, `Malay`, `Tamil`, `Mandarin`) in the same JSON response $\rightarrow$ outbound text broadcast.
+   - `TEXT`: Sent to **Gemini 3.8 Flash (`Type: TEXT-MESSAGE`)**, which scores announcement worthiness on a `1.0–10.0` scale. If `score < 4.0`, the model returns `null` for all language fields and the message is durably recorded as `ignored`. If `score >= 4.0`, the model returns all 4 language versions (`English`, `Malay`, `Tamil`, `Mandarin`) in the same JSON response $\rightarrow$ outbound text broadcast.
 3. **Strict Chronological FIFO Ingestion & Dispatch Ordering:**
-   - **Sequential FIFO Ingestion (`Concurrency = 1`):** Incoming WhatsApp messages are enqueued into an in-order FIFO ingestion runner sorted by `(timestamp_ms ASC, ingestion_seq ASC)`. Message $N+1$ (e.g., an `IMAGE_ONLY` message at `13:34`) never begins routing or queueing until Message $N$ (e.g., a `TEXT` message at `13:32` or `IMAGE_CAPTION` at `13:33`) has completed AI processing and queued its delivery jobs. This guarantees fast passthrough messages never overtake earlier messages that require AI translation.
-   - **Destination-Aware FIFO Dispatch:** Delivery jobs record `source_timestamp_ms`, `announcement_seq`, and `language_order` (`1=ms`, `2=en`, `3=zh-CN`, `4=ta`). The dispatcher selects eligible jobs in that order while applying an earlier-job barrier per trusted target JID. `pending`, `sending`, and eligible `retry_wait` jobs block later work for the same destination; `sent`, `failed_permanent`, `cancelled`, and `uncertain` jobs do not. This preserves chronological order for healthy sendable work without allowing one failed or uncertain language destination to block independent destinations.
+   - **Timestamp-Sorted Sequential FIFO Ingestion (`Concurrency = 1`):** Incoming WhatsApp messages are enqueued into a single-concurrency FIFO ingestion queue whose waiting items are sorted by `(timestampMs ASC, arrivalSeq ASC)`. Message $N+1$ (e.g., an `IMAGE_ONLY` message at `13:34`) never begins routing or queueing until Message $N$ (e.g., a `TEXT` message at `13:32` or `IMAGE_CAPTION` at `13:33`) has completed AI processing and queued its delivery jobs. This guarantees fast passthrough messages and out-of-order multi-batch arrivals never overtake earlier messages.
+   - **Destination-Aware FIFO Dispatch:** Delivery jobs record `source_timestamp_ms`, `announcement_seq`, and `language_order` (`1=ms`, `2=en`, `3=zh-CN`, `4=ta`). The dispatcher selects eligible jobs in that order while applying an earlier-job barrier per trusted target JID. `pending`, `sending`, and all `retry_wait` jobs block later work for the same destination, including during backoff; the block is released when the earlier job reaches a terminal state such as `sent`, `failed_permanent`, or `cancelled`. `uncertain` jobs do not block. This preserves chronological order for healthy sendable work without allowing one failed or uncertain language destination to block independent destinations.
 4. **Content-Aware Bilingual & Multilingual Processing:**
    - **Code-Switched / Mixed-Language Text** (e.g., *"Hari ini, we will open registration for new students..."*): Contextually understood as a unified whole and translated naturally into all 4 target languages (`English`, `Malay`, `Tamil`, `Mandarin`).
    - **Polished Multi-Version Separated Posts** (e.g., complete English version with footer, followed by a divider, followed by a complete Malay version with footer): The existing complete versions are **separated and placed verbatim** into their respective language fields without re-translating, and only the missing target languages (`Tamil` and `Mandarin`) are translated.
 5. **Deterministic Output & URL Verification:** Before queuing delivery jobs, a fast TypeScript validator verifies that all 4 language strings are non-empty ($\le 4096$ chars) and that every URL (`http://` / `https://`) present in the source text is preserved verbatim across all 4 outputs.
 6. **Untrusted Input & Static Routing:** Incoming WhatsApp messages are wrapped in `<untrusted_whatsapp_content>` tags and treated strictly as passive data. Model outputs have **zero authority** to specify or alter destination group JIDs, system instructions, or routing configurations.
-7. **At-Most-Once Ambiguous Send Safety:** If an outbound WhatsApp send operation times out or fails with an indeterminate transport state after dispatch has begun, the delivery job transitions to `uncertain` and halts automatic retries to prevent duplicate group broadcasts.
-8. **Google Cloud `e2-micro` Resource Guardrails:** To operate reliably within Google Cloud Compute Engine's `e2-micro` instance (`1 GB` RAM, `30 GB pd-standard` disk, `1 GB/month` egress), the system enforces strict sequential FIFO ingestion (`MAX_CONCURRENT_INGESTIONS = 1`), eager `Buffer` release after disk write, and single-read media dispatch.
+7. **At-Most-Once Ambiguous Send Safety:** If an outbound WhatsApp send operation times out, fails with an indeterminate transport state after dispatch has begun, or encounters a local database persistence error after transport acknowledgment, the delivery job transitions to `uncertain` and halts automatic retries to prevent duplicate group broadcasts.
+8. **Google Cloud `e2-micro` Resource Guardrails:** To operate reliably within Google Cloud Compute Engine's `e2-micro` instance (`1 GB` RAM, `30 GB pd-standard` disk, `1 GB/month` egress), the system enforces strict sequential FIFO ingestion (`MAX_CONCURRENT_INGESTIONS = 1`), eager `Buffer` release after disk write, single-read media dispatch, and scheduled daily retention pruning.
 
 ---
 
@@ -46,59 +46,58 @@ SuaraPutra monitors a single configured WhatsApp source group inside an existing
 flowchart TD
     subgraph Transport ["1. WhatsApp Transport Layer (IWhatsAppAdapter)"]
         WA_LIVE["BaileysWhatsAppAdapter (Live Socket)"]
-        WA_MOCK["MockWhatsAppAdapter (Synthetic Fixtures)"]
-        NORM["Event Normalizer & Media Downloader"]
+        WA_MOCK["MockWhatsAppAdapter (Fixtures & File-Backed Outbox)"]
+        NORM["Event Normalizer & Media Downloader (CP01)"]
         WA_LIVE --> NORM
         WA_MOCK --> NORM
     end
 
     subgraph Ingestion ["2. Strict FIFO Ingestion, Deduplication & Context Layer"]
-        FIFO["Sequential FIFO Ingestion Queue (Concurrency = 1, timestamp_ms ASC)"]
-        GATE["5-Gate Filter: Source JID, Self-Echo, Supported Kind, DB Dedup, Media Size"]
-        MEDIA_STORE["Local Media Store (data/media/) + Eager RAM Buffer Release"]
-        CTX["Context Assembler (Quoted Msg + Sliding Window)"]
+        FIFO["Timestamp-Sorted FIFO Ingestion Queue (Concurrency = 1, CP02)"]
+        GATE["5-Gate Filter + Source Persist + Eager RAM Buffer Release (CP03)"]
+        CTX["Context Assembler + Initial 'processing' Announcement Row (CP04)"]
         ROUTER_TYPE{"Payload Classification"}
 
         NORM --> FIFO
         FIFO --> GATE
         GATE -->|"Duplicate / Out-of-Scope / Self"| DROP["Log & Drop Silently"]
-        GATE -->|"Valid New Source Message"| MEDIA_STORE
-        MEDIA_STORE --> ROUTER_TYPE
+        GATE -->|"Valid New Source Message"| ROUTER_TYPE
         ROUTER_TYPE -->|"TEXT or IMAGE_CAPTION"| CTX
     end
 
     subgraph AIPipeline ["3. Unified Single-Call AI Engine (gemini-3.8-flash)"]
         PROMPT_BUILDER["Prompt Envelope Builder (TEXT-MESSAGE vs TEXT CAPTION FROM IMAGE)"]
-        GEMINI_CALL["Single Gemini 3.8 Flash Call (Nullable JSON Schema Output)"]
+        GEMINI_CALL["Single Gemini 3.8 Flash Call (Nullable JSON Schema, CP05)"]
         SCORE_CHECK{"score >= 4.0?"}
-        URL_GUARD["Local Regex URL & Integrity Guard (1ms TypeScript Check)"]
+        URL_GUARD["Local Regex URL & Integrity Guard (CP06)"]
 
         CTX --> PROMPT_BUILDER
         PROMPT_BUILDER --> GEMINI_CALL
+        GEMINI_CALL -->|"Provider Exhausted Retries"| HOLD["Persist: held_validation_failed"]
         GEMINI_CALL --> SCORE_CHECK
-        SCORE_CHECK -->|"No: score < 4.0 (Null translations)"| IGNORE["Record Ignored in SQLite"]
+        SCORE_CHECK -->|"No: score < 4.0 (Null translations)"| IGNORE["Persist Ignored + Primary Source Link"]
         SCORE_CHECK -->|"Yes: 4 Languages Returned"| URL_GUARD
-        URL_GUARD -->|"URL Missing / Malformed"| HOLD["Quarantine: held_validation_failed"]
+        URL_GUARD -->|"URL Missing / Malformed (After Retry)"| HOLD
     end
 
     subgraph Delivery ["4. Persistence, FIFO Queue & Dispatch Layer"]
-        PASS_INIT["Create Passthrough Announcement Record"]
-        QUEUE["SQLite Destination-Aware FIFO Queue (Per-target earlier-job barrier)"]
-        DISPATCH["Lease-Based Dispatcher, Single-Read Media Cache & Rate Pacer"]
-        RECON["Uncertain / Retry Recovery Handler"]
+        PASS_INIT["Create Passthrough Announcement Record (CP07)"]
+        QUEUE["SQLite Destination-Aware FIFO Queue (CP07)"]
+        DISPATCH["Lease-Based Dispatcher, Single-Read Media Cache & Rate Pacer (CP08-CP09)"]
+        RECON["DeliveryRecoveryScheduler (60s Lease Sweep)"]
 
         ROUTER_TYPE -->|"IMAGE_ONLY (Default Forward after prior FIFO msgs)"| PASS_INIT
         PASS_INIT --> QUEUE
         URL_GUARD -->|"Valid 4 Translations"| QUEUE
         QUEUE --> DISPATCH
-        DISPATCH -->|"Success"| SENT["Mark 'sent' + Record Outgoing Msg ID"]
-        DISPATCH -->|"Transient Error"| RETRY["Mark 'retry_wait' (Exponential Backoff)"]
-        DISPATCH -->|"Timeout / Ambiguous Error"| UNCERTAIN["Mark 'uncertain' (Halt Auto-Retry)"]
+        DISPATCH -->|"Success"| SENT["Mark 'sent' + Record Attempt & Outgoing Msg ID"]
+        DISPATCH -->|"Transient Error"| RETRY["Mark 'retry_wait' (Exponential Backoff 0-3s Jitter)"]
+        DISPATCH -->|"Timeout / Ambiguous / Post-Send DB Error"| UNCERTAIN["Mark 'uncertain' (Halt Auto-Retry)"]
         RETRY --> DISPATCH
         UNCERTAIN --> RECON
     end
 
-    subgraph Destinations ["5. Configured WhatsApp Community Groups"]
+    subgraph Destinations ["5. Configured WhatsApp Community Groups (or simulation/outbox/)"]
         GRP_MS["Malay Group (ms)"]
         GRP_EN["English Group (en)"]
         GRP_ZH["Mandarin Group (zh-CN)"]
@@ -120,7 +119,7 @@ To guarantee testability and clean separation of concerns, dependencies must flo
 4. **`whatsapp/`**: Depends on `config/`, `shared/`, and `observability/`. Defines `IWhatsAppAdapter` and implements `MockWhatsAppAdapter` and `BaileysWhatsAppAdapter`.
 5. **`ai/` & `validation/`**: Depends on `config/`, `shared/`, `observability/`, and `@google/genai`. Completely agnostic of WhatsApp and SQLite.
 6. **`ingestion/`, `routing/`, & `delivery/`**: Orchestration domain layers. Depend on `database/`, `whatsapp/` (interface only), `ai/`, `validation/`, `config/`, and `observability/`.
-7. **`app.ts` (Composition Root)**: Instantiates concrete adapters, repositories, and workers, wiring them together via constructor dependency injection.
+7. **`app.ts` (Composition Root)**: Instantiates concrete adapters, repositories, schedulers, and workers, wiring them together via constructor dependency injection.
 
 ### 2.3 Canonical Repository Structure
 
@@ -133,86 +132,104 @@ SuaraPutra_Smart_Multilingual_Broadcasting/
 │   │   └── tester.agent.md
 │   └── skills/
 ├── deploy/
-│   └── suaraputra.service            # Systemd unit with V8 heap & memory guardrails
+│   └── suaraputra.service                  # Systemd unit with V8 heap & memory guardrails
 ├── docs/
 │   ├── DECISIONS.md
 │   ├── BAILEYS_INTEGRATION_SPEC.md
-│   ├── architecture.md               # <-- THIS DOCUMENT (Source of Truth)
+│   ├── architecture.md                     # <-- THIS DOCUMENT (Source of Truth)
 │   ├── project-plan.md
+│   ├── phase-05-1-plan.md
+│   ├── phase-06-1-plan.md
 │   ├── operations-runbook.md
+│   ├── audits/
 │   └── logs/
 │       ├── dev/
 │       ├── fixes/
 │       └── test/
 ├── scripts/
-│   ├── setup-gcp-server.sh           # Ubuntu 24.04 x86_64 provisioning & swap setup script
-│   └── verify-environment.ts         # Runtime & native SQLite diagnostic verifier
+│   ├── setup-gcp-server.sh                 # Ubuntu 24.04 x86_64 provisioning & swap setup script
+│   ├── verify-environment.ts               # Runtime & native SQLite diagnostic verifier
+│   └── run-live-simulation.ts              # 95% Live Gemini + File Outbox simulation runner
+├── simulation/
+│   ├── inbox/                              # Tracked sample inputs for live simulation
+│   │   ├── messages.json                   # Realistic Baileys messages.upsert test batch
+│   │   └── images/                         # Sample JPEG/PNG input images
+│   └── outbox/                             # Git-ignored simulation output artifacts
+│       ├── broadcast-log.json
+│       ├── simulation-report.json
+│       ├── groups/                         # Per-group JSON feeds (ms, en, zh-CN, ta)
+│       └── media/                          # Forwarded binary images per language group
 ├── src/
-│   ├── app.ts                        # Composition root & graceful shutdown lifecycle
+│   ├── app.ts                              # Composition root, retention timer & graceful shutdown
 │   ├── config/
-│   │   ├── env.ts                    # Zod-validated environment configuration
-│   │   ├── groups.ts                 # Static source & destination JID routing map
-│   │   └── languages.ts              # Target language metadata & style rules
+│   │   ├── env.ts                          # Zod-validated environment configuration
+│   │   ├── groups.ts                       # Static source & destination JID routing map
+│   │   └── languages.ts                    # Target language metadata & style rules
 │   ├── whatsapp/
-│   │   ├── adapter.ts                # IWhatsAppAdapter interface & transport types
-│   │   ├── mock-adapter.ts           # Synthetic fixture-driven mock adapter (Week 1)
-│   │   ├── baileys-client.ts         # Production Baileys socket adapter (SIM arrival)
-│   │   ├── event-normalizer.ts       # WAMessage -> NormalizedInboundMessage mapper
-│   │   └── group-metadata.ts         # Community & group permission inspector
+│   │   ├── adapter.ts                      # IWhatsAppAdapter interface & transport types
+│   │   ├── errors.ts                       # Typed WhatsApp transport errors
+│   │   ├── mock-adapter.ts                 # Synthetic fixture & file-backed outbox adapter
+│   │   ├── baileys-client.ts               # Production Baileys socket adapter (SIM arrival)
+│   │   ├── event-normalizer.ts             # WAMessage -> NormalizedInboundMessage mapper (CP01)
+│   │   └── group-metadata.ts               # Community & group permission inspector
 │   ├── ingestion/
-│   │   ├── message-ingestor.ts       # Strict FIFO queue, 5-gate filter & 3-path router
-│   │   ├── deduplicator.ts           # Source message & content hash checks
-│   │   ├── media-store.ts            # Local binary storage manager (data/media/)
-│   │   └── context-assembler.ts      # Quoted message & temporal sliding window
+│   │   ├── message-ingestor.ts             # Timestamp-sorted FIFO queue, 5-gate filter & 3-path router
+│   │   ├── deduplicator.ts                 # Source message & content hash checks
+│   │   ├── media-store.ts                  # Local binary storage manager (data/media/)
+│   │   └── context-assembler.ts            # Quoted message & temporal sliding window
 │   ├── ai/
-│   │   ├── model-provider.ts         # IModelProvider & Gemini 3.8 Flash (@google/genai)
-│   │   ├── ai-processor.ts           # Single-call message evaluator & 4-language translator
+│   │   ├── model-provider.ts               # IModelProvider & Gemini 3.8 Flash (@google/genai)
+│   │   ├── ai-processor.ts                 # Single-call evaluator, 4-language translator & retry loop
 │   │   ├── prompts/
-│   │   │   └── translation.prompt.ts # I/O template & rules for TEXT and IMAGE_CAPTION
+│   │   │   └── translation.prompt.ts       # I/O template & rules for TEXT and IMAGE_CAPTION
 │   │   └── schemas/
-│   │       └── translation.schema.ts # Nullable JSON Schema & Zod validator
+│   │       └── translation.schema.ts       # Nullable JSON Schema & Zod validator
 │   ├── validation/
-│   │   └── translation-validator.ts  # Deterministic non-empty, length & exact URL checks
+│   │   └── translation-validator.ts        # Deterministic non-empty, length & exact URL checks
 │   ├── routing/
-│   │   └── message-router.ts         # Maps validated outputs to destination group JIDs
+│   │   └── message-router.ts               # Maps validated outputs to destination group JIDs
 │   ├── delivery/
-│   │   ├── queue.ts                  # Transactional job creation & FIFO lease acquisition
-│   │   ├── dispatcher.ts             # Polling worker, single-read media cache, rate pacing
-│   │   └── retry-policy.ts           # Exponential backoff & error classification
+│   │   ├── queue.ts                        # Transactional job creation & destination-aware FIFO lease
+│   │   ├── dispatcher.ts                   # Polling worker, single-read media cache, in-flight drain
+│   │   ├── recovery-scheduler.ts           # Startup & 60s periodic stale-lease recovery scheduler
+│   │   └── retry-policy.ts                 # Exponential backoff (0-3s jitter) & error classification
 │   ├── database/
-│   │   ├── client.ts                 # better-sqlite3 singleton with WAL pragmas
-│   │   ├── migrator.ts               # Sequential SQL migration runner
+│   │   ├── client.ts                       # better-sqlite3 singleton with WAL pragmas
+│   │   ├── migrator.ts                     # Sequential SQL migration runner
 │   │   ├── migrations/
-│   │   │   └── 001_initial_schema.sql
+│   │   │   ├── 001_initial_schema.sql
+│   │   │   └── 002_delivery_attempts.sql
 │   │   └── repositories/
 │   │       ├── source-message.repo.ts
 │   │       ├── announcement.repo.ts
 │   │       ├── translation.repo.ts
 │   │       ├── delivery-job.repo.ts
+│   │       ├── delivery-attempt.repo.ts
 │   │       └── event-log.repo.ts
 │   ├── observability/
-│   │   ├── logger.ts                 # Structured JSON logger (pino)
-│   │   ├── telemetry.ts              # High-resolution hrtime.bigint() checkpoint tracer
-│   │   └── health.ts                 # System health & metrics snapshot provider
-│   ├── web/                          # Week 2 (Milestone 7): Admin Monitoring Dashboard
-│   │   ├── server.ts                 # Read-only/admin HTTP API server
+│   │   ├── logger.ts                       # Structured JSON logger (pino)
+│   │   ├── telemetry.ts                    # Unified CP01-CP09 hrtime.bigint() checkpoint tracer
+│   │   └── health.ts                       # System health snapshot & 14-day retention runner
+│   ├── web/                                # Week 2 (Milestone 7): Admin Monitoring Dashboard
+│   │   ├── server.ts                       # Read-only/admin HTTP API server
 │   │   └── routes/
 │   └── shared/
-│       ├── types.ts                  # Shared domain enums and value objects
-│       ├── errors.ts                 # Custom typed error hierarchy
-│       └── crypto.ts                 # SHA-256 hashing & deterministic ID helpers
+│       ├── types.ts                        # Shared domain enums and value objects
+│       ├── errors.ts                       # Custom typed error hierarchy
+│       └── crypto.ts                       # SHA-256 hashing & deterministic ID helpers
 ├── tests/
 │   ├── unit/
 │   ├── integration/
+│   │   └── e2e-pipeline.test.ts            # Full 11-fixture & negative-path E2E test suite
 │   ├── fixtures/
-│   │   ├── baileys-events/           # Synthetic messages.upsert JSON payloads
-│   │   └── media/                    # Sample test PNG/JPEG binary buffers
-│   └── evaluation/                   # Multilingual announcement evaluation dataset
-├── data/                             # Git-ignored runtime directory
-│   ├── automation.sqlite             # SQLite WAL database
-│   └── media/                        # Cached inbound image binaries
-├── private/                          # Git-ignored sensitive credentials
-│   └── whatsapp-auth/                # Baileys multi-file auth state
+│   │   ├── baileys-events/                 # Synthetic messages.upsert JSON payloads
+│   │   └── media/                          # Sample test PNG/JPEG binary buffers
+│   └── evaluation/                         # Multilingual announcement evaluation dataset
+├── data/                                   # Git-ignored runtime directory
+│   ├── automation.sqlite                   # SQLite WAL database
+│   └── media/                              # Cached inbound image binaries
+├── private/                                # Git-ignored sensitive credentials
+│   └── whatsapp-auth/                      # Baileys multi-file auth state
 ├── .env.example
 ├── .gitignore
 ├── package.json
@@ -229,6 +246,8 @@ This section operationalizes `docs/BAILEYS_INTEGRATION_SPEC.md` and the Mock-Fir
 ### 3.1 Transport Domain Types & `IWhatsAppAdapter` Interface (`src/whatsapp/adapter.ts`)
 
 ```typescript
+import type { PipelineTracer } from '../observability/telemetry.js';
+
 export type SupportedMessageKind =
   | 'TEXT'           // conversation or extendedTextMessage
   | 'IMAGE_CAPTION'  // imageMessage with non-empty caption
@@ -269,6 +288,8 @@ export interface NormalizedInboundMessage {
   } | null;
   /** Raw provider payload JSON string for debugging/audit */
   rawPayloadJson: string;
+  /** Optional shared PipelineTracer created during CP01 normalization to unify CP01-CP09 telemetry */
+  tracer?: PipelineTracer;
 }
 
 export type OutboundMessagePayload =
@@ -325,10 +346,11 @@ export interface IWhatsAppAdapter {
 
 ### 3.2 Baileys Payload Normalization Rules (`src/whatsapp/event-normalizer.ts`)
 When translating raw Baileys `messages.upsert` payloads into `NormalizedInboundMessage`:
-1. **Upsert Event Type Filtering:** Process only events where `upsert.type === 'notify'` (real-time incoming messages) or explicitly configured recovery `append` events. Ignore history sync dumps.
-2. **Chronological Sorting Within Multi-Message Upsert Batches:** If a single `messages.upsert` event contains multiple messages in its `messages` array, `event-normalizer.ts` sorts them by `(messageTimestamp ASC)` before emitting them to `onMessage`, preserving exact arrival order.
-3. **Wrapper Unwrapping:** If `msg.message?.ephemeralMessage?.message` or `msg.message?.documentWithCaptionMessage?.message` wraps the inner content, unwrap once to inspect the underlying message object. Ignore `viewOnceMessage` and `viewOnceMessageV2` (do not broadcast ephemeral view-once media).
-4. **Message Type Extraction:**
+1. **Unified Trace Instantiation (`CP01_INGEST_NORMALIZE`):** For each raw message in the upsert batch, instantiate a `PipelineTracer` (`traceId`, `messageId`, `waSourceSentTimestampMs`), record `CP01_INGEST_NORMALIZE` on that tracer, and attach it to `normalizedMessage.tracer` so downstream ingestion (`CP02`–`CP07`) and dispatch (`CP08`–`CP09`) record on the exact same trace context.
+2. **Upsert Event Type Filtering:** Process only events where `upsert.type === 'notify'` (real-time incoming messages) or explicitly configured recovery `append` events. Ignore history sync dumps.
+3. **Chronological Sorting Within Multi-Message Upsert Batches:** If a single `messages.upsert` event contains multiple messages in its `messages` array, `event-normalizer.ts` sorts them by `(messageTimestamp ASC)` before emitting them to `onMessage`, preserving exact arrival order.
+4. **Wrapper Unwrapping:** If `msg.message?.ephemeralMessage?.message` or `msg.message?.documentWithCaptionMessage?.message` wraps the inner content, unwrap once to inspect the underlying message object. Ignore `viewOnceMessage` and `viewOnceMessageV2` (do not broadcast ephemeral view-once media).
+5. **Message Type Extraction:**
    - **Plain Text (`conversation`):**
      - `msg.message.conversation` is non-empty string $\rightarrow$ `kind = 'TEXT'`, `text = msg.message.conversation.trim()`.
    - **Extended Text (`extendedTextMessage`):**
@@ -336,26 +358,30 @@ When translating raw Baileys `messages.upsert` payloads into `NormalizedInboundM
      - Extract `contextInfo` (`stanzaId`, `participant`, `quotedMessage`).
    - **Image Message (`imageMessage`):**
      - Verify `msg.message.imageMessage.fileLength <= config.MAX_MEDIA_BYTES` (default $10\text{ MiB}$) before downloading to protect `e2-micro` RAM and monthly egress.
-     - Download binary buffer using Baileys `downloadMediaMessage(msg, 'buffer', {})` (or read from fixture buffer in `MockWhatsAppAdapter`).
+     - Download binary buffer using Baileys `downloadMediaMessage(msg, 'buffer', {})` (or read from fixture/simulation buffer in `MockWhatsAppAdapter`).
      - Inspect `msg.message.imageMessage.caption`:
        - If `caption` exists and `caption.trim().length > 0` $\rightarrow$ `kind = 'IMAGE_CAPTION'`, `text = caption.trim()`.
        - If `caption` is undefined, null, or whitespace-only $\rightarrow$ `kind = 'IMAGE_ONLY'`, `text = null`.
      - Extract `contextInfo` from `msg.message.imageMessage.contextInfo` if present.
    - **All Other Message Keys (`videoMessage`, `audioMessage`, `documentMessage`, `stickerMessage`, `pollCreationMessage`, `reactionMessage`, `protocolMessage`):**
      - Classify as `kind = 'UNSUPPORTED'`.
-5. **Quoted Text Extraction (`contextInfo.quotedMessage`):**
+6. **Quoted Text Extraction (`contextInfo.quotedMessage`):**
    - If `quotedMessage` contains `conversation`, `extendedTextMessage.text`, or `imageMessage.caption`, extract that string into `quotedText` so the Context Assembler can resolve replies even if the original message arrived prior to bot startup.
 
 ### 3.3 `MockWhatsAppAdapter` Specification (`src/whatsapp/mock-adapter.ts`)
-`MockWhatsAppAdapter` enables 100% end-to-end development and verification without a physical SIM card:
-- **Fixture Ingestion API:** Exposes `injectSyntheticUpsert(rawBaileysUpsertPayload: unknown, mediaBuffers?: Record<string, Buffer>): Promise<void>` which runs the exact same `event-normalizer.ts` logic used by the live Baileys adapter.
-- **Outbound Spy & Fault Injection:**
+`MockWhatsAppAdapter` enables 100% end-to-end development, fault-injection testing, and file-backed live Gemini simulation without a physical SIM card:
+- **Fixture & Simulation Ingestion API:** Exposes `injectSyntheticUpsert(rawBaileysUpsertPayload: unknown, mediaBuffers?: Record<string, Buffer>): Promise<void>` which runs the exact same `event-normalizer.ts` logic used by the live Baileys adapter.
+- **In-Memory Outbound Spy & Fault Injection:**
   - Stores all sent payloads in an inspectable in-memory outbox (`getSentMessages()`) while also logging to `pino`.
   - Supports deterministic fault-injection modes per `targetGroupJid` or call index for integration testing:
     - `NORMAL`: Resolves after configurable latency (e.g., $50\text{ ms}$) with a deterministic `outgoingMessageId` (`mock-out-${uuid}`).
     - `TRANSIENT_ERROR`: Rejects with `WhatsAppTransientError` (e.g., `ConnectionClosed` / `TimedOut` pre-write) to test `retry_wait` transitions.
     - `AMBIGUOUS_TIMEOUT`: Rejects with `WhatsAppAmbiguousTimeoutError` after simulated socket write to test `uncertain` state locking.
     - `PERMANENT_ERROR`: Rejects with `WhatsAppPermanentError` (e.g., `403 Forbidden / Not a participant`) to test `failed_permanent`.
+- **Optional File-Backed Outbox Mode (`fileOutboxDir`):**
+  - When initialized with `fileOutboxDir` (used by `scripts/run-live-simulation.ts` via `npm run simulate:live`), every successful `sendMessage(targetGroupJid, payload)` also persists tangible output files on disk:
+    - Writes outbound `IMAGE` binary buffers to `path.join(fileOutboxDir, 'media', languageCode, `${seq}_${outgoingMessageId}.${ext}`)`.
+    - Appends the structured outbound message record (`outgoingMessageId`, `acknowledgedAtIso`, `targetGroupJid`, `language`, `payloadType`, `text` or `caption`, `savedMediaPath`) to `path.join(fileOutboxDir, 'groups', `${languageCode}.json`)` and `path.join(fileOutboxDir, 'broadcast-log.json')`.
 
 ### 3.4 `BaileysWhatsAppAdapter` Specification (`src/whatsapp/baileys-client.ts`)
 When `WHATSAPP_ADAPTER_MODE=baileys` is enabled:
@@ -367,6 +393,7 @@ When `WHATSAPP_ADAPTER_MODE=baileys` is enabled:
   - If `statusCode === DisconnectReason.loggedOut`, transitions status to `logged_out`, logs a `CRITICAL` operational event, and halts reconnection.
   - For all other disconnect codes, reconnects using bounded exponential backoff:
     $$\text{delayMs} = \min\left(60000,\ 1000 \times 2^{\text{attempt}} + \text{jitter}\right)$$
+- **Upsert Error Boundary:** Wraps `messages.upsert` processing (`handleUpsert`) in a `.catch()` and per-message `try/catch` boundary so media download failures or malformed stanzas log a structured `ERROR` event without causing unhandled promise rejections or dropping subsequent messages in the batch.
 - Enforces a strict send timeout wrapper ($30000\text{ ms}$) around `sock.sendMessage(targetGroupJid, content)`:
   - If `sock.sendMessage` does not resolve or reject within $30000\text{ ms}$, throws `WhatsAppAmbiguousTimeoutError` so the queue dispatcher marks the job `uncertain`.
 
@@ -374,50 +401,55 @@ When `WHATSAPP_ADAPTER_MODE=baileys` is enabled:
 
 ## 4. Strict FIFO Ingestion, Deduplication, Context Assembly & Media Pipeline
 
-### 4.1 Sequential FIFO Ingestion Queue & Five-Gate Filter (`src/ingestion/message-ingestor.ts`)
-To guarantee that fast passthrough messages (`IMAGE_ONLY`) never overtake earlier messages that require AI translation (`TEXT` or `IMAGE_CAPTION`)—and to keep peak RAM usage minimal on the `e2-micro` instance—`MessageIngestor` processes all incoming messages through a **strict single-concurrency FIFO queue (`MAX_CONCURRENT_INGESTIONS = 1`)**:
+### 4.1 Timestamp-Sorted FIFO Ingestion Queue & Five-Gate Filter (`src/ingestion/message-ingestor.ts`)
+To guarantee that fast passthrough messages (`IMAGE_ONLY`) and out-of-order event batches never overtake earlier messages that require AI translation (`TEXT` or `IMAGE_CAPTION`)—and to keep peak RAM usage minimal on the `e2-micro` instance—`MessageIngestor` processes all incoming messages through a **strict single-concurrency FIFO queue (`MAX_CONCURRENT_INGESTIONS = 1`)**:
 
-1. **FIFO Serialization:** When `adapter.onMessage` fires for Message 1 (`13:32 TEXT`), Message 2 (`13:33 IMAGE_CAPTION`), and Message 3 (`13:34 IMAGE_ONLY`), they are appended to an internal sequential promise queue ordered by arrival/`timestampMs`. Message 2 does not start executing until Message 1 has completely finished its AI processing and queued its 4 delivery jobs in SQLite. Similarly, Message 3 (`IMAGE_ONLY`) waits until Message 2 has queued its 4 delivery jobs.
-2. **Five-Gate Filter:** Inside the sequential FIFO worker, each `NormalizedInboundMessage` passes through five gates:
+1. **Timestamp-Sorted FIFO Serialization (`CP02_FIFO_WAIT`):**
+   - When `adapter.onMessage` fires, the message enters `pendingQueue` and starts `CP02_FIFO_WAIT` on its `PipelineTracer`.
+   - If the worker is currently busy processing an earlier message, any waiting items in `pendingQueue` are sorted before the next dequeue by `(msg.timestampMs ASC, arrivalSeq ASC)`.
+   - When the worker dequeues the next message, it closes `CP02_FIFO_WAIT` on the tracer. Message $N+1$ never begins routing or queueing until Message $N$ has completely finished AI processing and queued its 4 delivery jobs in SQLite.
+2. **Five-Gate Filter (`CP03_GATE_CHECKS`):** Inside the sequential FIFO worker, each `NormalizedInboundMessage` passes through five gates (and the `source_messages` insert) wrapped inside `CP03_GATE_CHECKS`:
 
 | Gate | Check Performed | Action on Failure |
 |---|---|---|
 | **Gate 1: Source Scope** | `msg.chatJid === config.WHATSAPP_SOURCE_GROUP_JID` | Silently ignore; do not write to DB (prevents noise from destination groups or DMs). |
-| **Gate 2: Loop & Self-Echo** | `msg.fromMe === false` AND `msg.senderJid !== adapter.getBotJid()` | Silently ignore; prevents infinite broadcast loops. |
+| **Gate 2: Loop & Self-Echo** | `msg.fromMe === false` AND `msg.senderJid !== resolveBotJid()` (where `resolveBotJid` dynamically queries `adapter.getBotJid()` after connection) | Silently ignore; prevents infinite broadcast loops even when `botJid` becomes available only after socket connection. |
 | **Gate 3: Supported Kind** | `msg.kind !== 'UNSUPPORTED'` | Log `DEBUG` event; ignore unsupported media types (`video`, `sticker`, `poll`, etc.). |
 | **Gate 4: Primary Deduplication** | Check SQLite `source_messages` for existing `(chat_jid, message_id)` | Log `INFO` duplicate event; return early without reprocessing. |
 | **Gate 5: Media Persistence & Eager Buffer Release** | If `msg.kind` is `IMAGE_CAPTION` or `IMAGE_ONLY`, verify `msg.media.buffer.length > 0`, persist to `data/media/${messageId}.${ext}`, and **immediately set `msg.media.buffer = null`** | Log `ERROR` media failure; freeing the buffer immediately prevents holding raw image buffers in RAM during async AI calls. |
 
-Once Gates 1–5 pass, the message is atomically inserted into `source_messages` (receiving a monotonically increasing `ingestion_seq` integer) with a computed SHA-256 `content_hash`:
+Once Gates 1–5 pass, the message is atomically inserted into `source_messages` (receiving a monotonically increasing `ingestion_seq` integer) with a computed SHA-256 `content_hash` before closing `CP03_GATE_CHECKS`:
 - For `TEXT`: $\text{SHA256}(\text{normalizeWhitespace}(\text{text}))$
 - For `IMAGE_CAPTION`: $\text{SHA256}(\text{fileSha256Hex} \mathbin{\Vert} \text{":"} \mathbin{\Vert} \text{normalizeWhitespace}(\text{caption}))$
 - For `IMAGE_ONLY`: $\text{SHA256}(\text{fileSha256Hex})$
 
-### 4.2 Three-Path Media & Message Routing
+### 4.2 Three-Path Media & Message Routing (With Pre-AI Durable Announcement State)
 After persisting the `source_messages` row, the FIFO ingestor routes execution by `msg.kind` and awaits completion before advancing to the next message in the FIFO queue:
 
 1. **Path 1 — `IMAGE_ONLY` (`imageMessage` without caption):**
    - **Default Forward (Zero AI Calls):** Images without captions are forwarded automatically without AI invocation. Because ingestion runs strictly in FIFO order, any preceding `TEXT` or `IMAGE_CAPTION` message is guaranteed to have already queued its delivery jobs before this `IMAGE_ONLY` message is queued.
-   - Within a single SQLite transaction:
+   - Within a single SQLite transaction (`CP07_QUEUE_PERSIST`):
      - Create an `announcements` record with `classification = 'announcement'`, `evaluation_score = 10.0`, `status = 'queued'`, `payload_type = 'IMAGE_ONLY'`, `source_timestamp_ms = msg.timestampMs`, `media_local_path`, and `media_mime_type`.
-     - Link `announcement_sources` to the `source_messages` record.
+     - Link `announcement_sources` (`role = 'primary'`) to the `source_messages` record.
      - Create 4 `delivery_jobs` (ordered `1=ms`, `2=en`, `3=zh-CN`, `4=ta`) with `source_timestamp_ms = msg.timestampMs`, `announcement_seq = announcement.announcement_seq`, `payload_type = 'IMAGE_ONLY'`, and `media_local_path`.
 
 2. **Path 2 — `IMAGE_CAPTION` (`imageMessage` with caption):**
-   - Assemble context via `ContextAssembler`.
-   - **Invoke AI Processor (`Type: TEXT CAPTION FROM IMAGE`):**
-     - Images with captions are always broadcast-worthy. The AI call skips evaluation (`score = 10.0`) and translates/separates the caption into `English`, `Malay`, `Tamil`, and `Mandarin`.
-   - Run `TranslationValidator` (verifying non-empty strings and exact URL preservation).
-   - If valid, atomically persist the 4 `translations` and queue 4 `IMAGE_CAPTION` delivery jobs (`1=ms`, `2=en`, `3=zh-CN`, `4=ta`) carrying `source_timestamp_ms = msg.timestampMs`, `announcement_seq`, `media_local_path`, and each target language's translated caption.
+   - Assemble context via `ContextAssembler` (`CP04_CONTEXT_ASSEMBLY`).
+   - **Create Initial `processing` Announcement Record:** Before calling `AiProcessor`, atomically insert the `announcements` row (`status = 'processing'`, `classification = 'announcement'`, `evaluation_score = 10.0`, `primary_source_message_id = sourceMsg.id`, `source_timestamp_ms = msg.timestampMs`, `payload_type = 'IMAGE_CAPTION'`, `media_local_path`, `media_mime_type`) and link `announcement_sources` (`role = 'primary'` plus any deduplicated `quoted` and `window_context` sources).
+   - **Invoke AI Processor (`Type: TEXT CAPTION FROM IMAGE`, `CP05_AI_PROCESS`) & `TranslationValidator` (`CP06_VALIDATION`):**
+     - Images with captions are always broadcast-worthy (`score = 10.0`) and translated/separated into `English`, `Malay`, `Tamil`, and `Mandarin`.
+     - **If AI provider retries exhaust or validation fails after 1 regeneration retry:** Update the existing `announcements` row to `status = 'held_validation_failed'` (saving `raw_ai_response_json` and any failed `translations` rows with `validation_errors_json`), log the original error to `event_logs`, create **zero** delivery jobs, and release the FIFO step.
+     - **If valid (`CP07_QUEUE_PERSIST`):** Atomically update `announcements.status = 'queued'`, persist the 4 validated `translations`, and queue 4 `IMAGE_CAPTION` delivery jobs (`1=ms`, `2=en`, `3=zh-CN`, `4=ta`) carrying `source_timestamp_ms = msg.timestampMs`, `announcement_seq`, `media_local_path`, and each target language's translated caption.
 
 3. **Path 3 — `TEXT` (`conversation` / `extendedTextMessage`):**
-   - Assemble context via `ContextAssembler`.
-   - **Invoke AI Processor (`Type: TEXT-MESSAGE`):**
+   - Assemble context via `ContextAssembler` (`CP04_CONTEXT_ASSEMBLY`).
+   - **Create Initial `processing` Announcement Record:** Before calling `AiProcessor`, atomically insert the `announcements` row (`status = 'processing'`, `classification = 'announcement'`, `evaluation_score = 0`, `primary_source_message_id = sourceMsg.id`, `source_timestamp_ms = msg.timestampMs`, `payload_type = 'TEXT'`) and link `announcement_sources` (`role = 'primary'` plus any deduplicated `quoted` and `window_context` sources).
+   - **Invoke AI Processor (`Type: TEXT-MESSAGE`, `CP05_AI_PROCESS`):**
      - Evaluates worthiness on a `1.0` to `10.0` scale (`score`).
-     - **If `score < 4.0`:** Returns `null` for all 4 language fields. The ingestor records `announcements.status = 'ignored'`, `classification = 'not_announcement'`, `evaluation_score = score`, and finishes processing this message so the next FIFO message can proceed.
-     - **If `score >= 4.0`:** Returns the complete 4-language translations (`English`, `Malay`, `Tamil`, `Mandarin`) in the same JSON response.
-   - Run `TranslationValidator` (verifying non-empty strings and exact URL preservation).
-   - If valid, atomically persist the 4 `translations` and queue 4 `TEXT` delivery jobs (`1=ms`, `2=en`, `3=zh-CN`, `4=ta`) carrying `source_timestamp_ms = msg.timestampMs` and `announcement_seq`.
+     - **If `score < 4.0`:** Returns `null` for all 4 language fields. The ingestor updates the `announcements` row to `status = 'ignored'`, `classification = 'not_announcement'`, `evaluation_score = score`, `raw_ai_response_json` (preserving the `role = 'primary'` link in `announcement_sources`), and finishes processing this message so the next FIFO message can proceed.
+     - **If `score >= 4.0`:** Returns the complete 4-language translations (`English`, `Malay`, `Tamil`, `Mandarin`) and runs `TranslationValidator` (`CP06_VALIDATION`).
+     - **If AI provider retries exhaust or validation fails after 1 regeneration retry:** Update the existing `announcements` row to `status = 'held_validation_failed'` (saving `raw_ai_response_json` and any failed `translations` rows with `validation_errors_json`), log the original error to `event_logs`, create **zero** delivery jobs, and release the FIFO step.
+     - **If valid (`CP07_QUEUE_PERSIST`):** Atomically update `announcements.status = 'queued'`, persist the 4 `translations`, and queue 4 `TEXT` delivery jobs (`1=ms`, `2=en`, `3=zh-CN`, `4=ta`) carrying `source_timestamp_ms = msg.timestampMs` and `announcement_seq`.
 
 ### 4.3 Context Assembler Specification (`src/ingestion/context-assembler.ts`)
 Because the FIFO ingestion queue finishes Message $N$ before starting Message $N+1$, `ContextAssembler` always has an up-to-date view of earlier messages in SQLite:
@@ -431,6 +463,7 @@ Because the FIFO ingestion queue finishes Message $N$ before starting Message $N
     - `timestamp_ms <= msg.timestampMs`
     - `message_id != msg.messageId`
     - Ordered by `timestamp_ms ASC, ingestion_seq ASC`, limited to at most `config.CONTEXT_MAX_MESSAGES` (default: $5$ messages).
+  - Deduplicate source message IDs before linking `announcement_sources` so a quoted message that also appears in the temporal sliding window never causes a primary key conflict.
   - Pass `quotedText` and `recentSameSenderMessages` inside `otherAttributes` of the AI input template.
 
 ---
@@ -494,9 +527,9 @@ export type TranslationResponse = z.infer<typeof TranslationResponseSchema>;
 - `Tamil` $\rightarrow$ `ta` (`language_order = 4`)
 
 **Expected Backend Outcomes from `AiProcessor.process()`:**
-1. **Thrown Provider / Network Error:** HTTP `4xx`/`5xx`, rate limit (`429`), or timeout $\rightarrow$ logged to `event_logs` and handled by caller error policy.
+1. **Provider / Network Error Exhausted Retries:** After up to 2 retries ($1000\text{ ms}$, $2000\text{ ms}$ backoff) on HTTP `429`/`5xx` or timeout, returns/transitions to `held_validation_failed` while preserving the original provider error message in `event_logs`.
 2. **Low-Score Evaluation (`score < 4.0` on `TEXT-MESSAGE`):** Returns `{ id, score, English: null, Malay: null, Tamil: null, Mandarin: null }` $\rightarrow$ persisted as `ignored` (`not_announcement`) in SQLite; zero delivery jobs created.
-3. **Translated Output (`score >= 4.0` or `TEXT CAPTION FROM IMAGE`):** Returns populated strings for `English`, `Malay`, `Tamil`, and `Mandarin` $\rightarrow$ proceeds to `TranslationValidator` and delivery queueing.
+3. **Translated Output (`score >= 4.0` or `TEXT CAPTION FROM IMAGE`):** Returns populated strings for `English`, `Malay`, `Tamil`, and `Mandarin` $\rightarrow$ validated by `TranslationValidator` and queued for delivery.
 
 ### 5.4 System Instructions & Translation Rules (`src/ai/prompts/translation.prompt.ts`)
 The system instruction enforces five core rules:
@@ -525,7 +558,7 @@ Before queuing delivery jobs for a translated response (`score >= 4.0` or `IMAGE
 2. **URL Exact Preservation Check:** Extract all `http://` and `https://` URLs from the source text via regex and verify each URL appears **verbatim** inside all 4 language outputs.
 
 **Action on Validation Failure:**
-If validation fails, `AiProcessor` performs at most **one** retry call with the validation error appended. If the second attempt fails, the announcement is saved with `status = 'held_validation_failed'` and **no delivery jobs are created**.
+If validation fails, `AiProcessor` performs at most **one** retry call with the validation error appended. If the second attempt fails, the existing `announcements` row is updated to `status = 'held_validation_failed'`, the failed `translations` rows are persisted with `validation_status = 'failed'`, and **no delivery jobs are created**.
 
 ---
 
@@ -549,7 +582,7 @@ The initial migration creates the seven foundational tables shown below.
 The current schema has one additional additive table,
 `delivery_attempts`, created by
 `src/database/migrations/002_delivery_attempts.sql` for durable per-send
-operation history. Therefore, the effective Phase 5.1 schema contains eight
+operation history. Therefore, the effective schema contains eight
 application tables plus the migration tracking table maintained by the
 migration runner.
 
@@ -735,7 +768,7 @@ credentials, message contents, or media bytes.
 ### 6.3 Transactional Persistence Boundaries & Destination-Aware FIFO Poll Query
 All multi-table state transitions **must** execute inside `db.transaction(() => { ... })()`:
 1. **Announcement Queueing Transaction:** Updating `announcements.status = 'queued'`, inserting the 4 `translations` records (for `TEXT` and `IMAGE_CAPTION`), and inserting the 4 `delivery_jobs` records (`language_order` `1` to `4` for `ms`, `en`, `zh-CN`, `ta`) must execute in a single atomic transaction. Either all 4 destination jobs are queued together or none are.
-2. **Destination-aware FIFO Job Lease Acquisition Transaction (`src/delivery/queue.ts`):** Polling the next eligible job and acquiring its lease executes atomically. Candidates are ordered by `source_timestamp_ms`, `announcement_seq`, and `language_order`, and a correlated earlier-job barrier excludes a candidate when an earlier job for the same trusted `target_group_jid` is still active:
+2. **Destination-aware FIFO Job Lease Acquisition Transaction (`src/delivery/queue.ts`):** Polling the next eligible job and acquiring its lease executes atomically. Candidates are ordered by `source_timestamp_ms`, `announcement_seq`, and `language_order`, and a correlated earlier-job barrier excludes a candidate when an earlier job for the same trusted `target_group_jid` is still active. A `retry_wait` job remains an active barrier during its backoff; only its own `next_attempt_at` controls when that job can be claimed again.
 
 ```sql
 SELECT candidate.id
@@ -758,13 +791,7 @@ WHERE candidate.status IN ('pending', 'retry_wait')
           AND earlier.language_order < candidate.language_order
         )
       )
-      AND (
-        earlier.status IN ('pending', 'sending')
-        OR (
-          earlier.status = 'retry_wait'
-          AND earlier.next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        )
-      )
+      AND earlier.status IN ('pending', 'sending', 'retry_wait')
   )
 ORDER BY candidate.source_timestamp_ms ASC, candidate.announcement_seq ASC,
   candidate.language_order ASC
@@ -806,25 +833,25 @@ stateDiagram-v2
 | `sending` | Currently leased by the dispatcher (`lease_expires_at` set to $45\text{ seconds}$ in the future). |
 | `sent` | Terminal success state. `outgoing_message_id` and `sent_at` are recorded. |
 | `retry_wait` | A **known pre-delivery transient error** occurred (e.g., WhatsApp socket disconnected *before* send invocation, local rate-limit wait, temporary 5xx network failure before write) and $\text{attempts} < \text{max\_attempts}$. |
-| `uncertain` | **Quarantine state for ambiguous send outcomes.** Triggered if `adapter.sendMessage()` times out ($>30\text{s}$), throws an indeterminate socket hang-up mid-flight, or if a job's `sending` lease expires due to a process crash. **Never auto-retried.** |
-| `failed_permanent` | Terminal failure state. Triggered if $\text{attempts} \ge \text{max\_attempts}$, or if the error is non-retryable (e.g., bot removed from destination group, invalid group JID, missing local media file). |
+| `uncertain` | **Quarantine state for ambiguous send outcomes.** Triggered if `adapter.sendMessage()` times out ($>30\text{s}$), throws an indeterminate socket hang-up mid-flight, encounters a post-send database persistence failure, or if a job's `sending` lease expires due to a process crash. **Never auto-retried.** |
+| `failed_permanent` | Terminal failure state. Triggered if $\text{attempts} \ge \text{max\_attempts}$, or if the error is non-retryable (e.g., bot removed from destination group, invalid group JID, missing local media file, or `INVALID_DELIVERY_PAYLOAD`). |
 | `cancelled` | Administratively cancelled before delivery. |
 
 ### 7.3 Exponential Backoff, Single-Read Media Cache & Inter-Job Pacing
 1. **Retry Backoff Formula (for `retry_wait`):**
    $$\text{backoffSeconds}(\text{attempt}) = \min\left(300,\ 5 \times 2^{\text{attempt} - 1}\right) + \text{random}(0, 3)$$
-   - Attempt 1 failure $\rightarrow \sim 5\text{s}$
-   - Attempt 2 failure $\rightarrow \sim 10\text{s}$
-   - Attempt 3 failure $\rightarrow \sim 20\text{s}$
-   - Attempt 4 failure $\rightarrow \sim 40\text{s}$
+   - Attempt 1 failure $\rightarrow \sim 5\text{–}8\text{s}$
+   - Attempt 2 failure $\rightarrow \sim 10\text{–}13\text{s}$
+   - Attempt 3 failure $\rightarrow \sim 20\text{–}23\text{s}$
+   - Attempt 4 failure $\rightarrow \sim 40\text{–}43\text{s}$
    - Attempt 5 failure $\rightarrow$ transitions to `failed_permanent`.
 2. **Single-Read Media Dispatch Cache (`src/delivery/dispatcher.ts`):**
    - Because jobs for an announcement are polled sequentially in `language_order` (`1=ms`, `2=en`, `3=zh-CN`, `4=ta`), when dispatching an `IMAGE_ONLY` or `IMAGE_CAPTION` announcement, the dispatcher caches the most recently read image buffer in memory (`{ mediaLocalPath: string, buffer: Buffer }`). All 4 consecutive group sends reuse that single `Buffer` instance, reducing disk read IOPS by 75% and releasing the buffer reference as soon as the 4th group send completes.
 3. **Sequential Pacing Between Destination Sends:**
    - The dispatcher processes one job at a time sequentially with a configurable pacing delay (`DELIVERY_PACING_MS`, default $1500\text{ ms}$) between consecutive group sends.
 
-### 7.4 Startup & Periodic Crash Recovery Protocol (`src/delivery/queue.ts`)
-On application startup (and every $60\text{ seconds}$ thereafter), the recovery routine executes:
+### 7.4 Startup & Periodic Crash Recovery & Graceful Shutdown Protocol (`src/delivery/recovery-scheduler.ts`, `src/app.ts`)
+On application startup (and every $60\text{ seconds}$ thereafter via `DeliveryRecoveryScheduler`), the recovery routine executes:
 1. **Orphaned Lease Recovery (`sending` $\rightarrow$ `uncertain`):**
    - Query `delivery_jobs` where `status = 'sending'` and `lease_expires_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
    - Transition each matching row to `status = 'uncertain'`, close any associated `started` delivery attempt as `uncertain` with `failure_kind = 'ambiguous'`, set `last_error_code = 'LEASE_EXPIRED_CRASH'`, and set `last_error_message = 'Process terminated or hung while job was in sending state; held as uncertain to prevent duplicate broadcast'`.
@@ -832,6 +859,8 @@ On application startup (and every $60\text{ seconds}$ thereafter), the recovery 
 2. **Interrupted AI Pipeline Recovery (`announcements.status = 'processing'`):**
    - Query `announcements` where `status = 'processing'` and `updated_at < now - 5 minutes` that have zero `delivery_jobs`, ordered by `source_timestamp_ms ASC, announcement_seq ASC`.
    - Re-trigger `AiProcessor.process()` safely in chronological order for each `primary_source_message_id`.
+3. **Bounded Graceful Shutdown (`src/app.ts`):**
+   - Upon receiving `SIGINT` or `SIGTERM` (or `app.stop()`), the composition root stops claiming new jobs, awaits any active in-flight `dispatchNext()` Promise (up to `DELIVERY_SEND_TIMEOUT_MS`), stops `DeliveryRecoveryScheduler` and the daily retention timer, disconnects `IWhatsAppAdapter`, and checkpoints/closes the SQLite WAL database.
 
 ---
 
@@ -893,11 +922,11 @@ export type EnvConfig = z.infer<typeof EnvConfigSchema>;
 1. **Emergency Broadcast Kill-Switch (`BROADCAST_KILL_SWITCH=true`):**
    - When set to `'true'`, the dispatcher immediately stops dequeuing and sending outbound WhatsApp messages.
 2. **Credential Isolation:**
-   - `./private/whatsapp-auth/`, `./data/`, and `.env` must be listed in `.gitignore`.
+   - `./private/whatsapp-auth/`, `./data/`, `simulation/outbox/`, and `.env` must be listed in `.gitignore`.
    - Directory permissions on Linux (`chmod 700 ./private/whatsapp-auth ./data`) restrict access exclusively to the service user.
    - Redact `AI_API_KEY`, session tokens, and pairing payloads in `pino` logger serializers.
-3. **Data Retention & Media Cleanup Job:**
-   - A daily background maintenance task purges cached image files in `./data/media/` and prunes `not_announcement` rows in `source_messages` older than `DATA_RETENTION_DAYS` (default $14\text{ days}$) once all associated `delivery_jobs` are in terminal states.
+3. **Scheduled Data Retention & Media Cleanup Job (`src/observability/health.ts`, `src/app.ts`):**
+   - Executed on startup and scheduled every 24 hours in `src/app.ts`, purging cached image files in `./data/media/` and pruning `not_announcement` (`ignored`) rows in `source_messages` older than `DATA_RETENTION_DAYS` (default $14\text{ days}$) once all associated records are in terminal states.
 4. **No Evasion Policy:**
    - The system must never implement proxy rotation, account rotation, or spoofed client fingerprints. If WhatsApp restricts the dedicated account, the adapter transitions to `logged_out` / paused state and alerts operators via `event_logs`.
 
@@ -915,8 +944,8 @@ export type EnvConfig = z.infer<typeof EnvConfigSchema>;
 - **Process Supervision:** Managed via a dedicated non-root user (`suaraputra`) under `systemd` (`suaraputra.service`) with `Restart=on-failure` and `RestartSec=5s`, ensuring only a **single process instance** ever connects the WhatsApp session or writes to SQLite.
 
 ### 9.2 Observability, Telemetry & Health Snapshot (`src/observability/`)
-1. **High-Resolution Pipeline Telemetry (`src/observability/telemetry.ts`):**
-   - Uses `process.hrtime.bigint()` to record microsecond checkpoints (`CP01` through `JOURNEY_SUMMARY`) across FIFO ingestion wait time, AI processing, SQLite persistence, and per-group delivery.
+1. **Unified High-Resolution Pipeline Telemetry (`src/observability/telemetry.ts`):**
+   - Uses `process.hrtime.bigint()` on a single per-message `PipelineTracer` instance created at `CP01_INGEST_NORMALIZE` and propagated through `CP02_FIFO_WAIT`, `CP03_GATE_CHECKS`, `CP04_CONTEXT_ASSEMBLY`, `CP05_AI_PROCESS`, `CP06_VALIDATION`, `CP07_QUEUE_PERSIST`, `CP08_MSG_RECONSTRUCT`, and `CP09_DISPATCH_<LANG>` to produce a complete `TOTAL_PIPELINE_US` and `[JOURNEY_SUMMARY]`.
 2. **System Health Snapshot (`src/observability/health.ts`):**
    - Exposes an internal state snapshot (logged periodically and served to the Week 2 Admin Dashboard):
 
@@ -958,7 +987,7 @@ To ensure Week 1 code requires zero refactoring when Week 2 begins:
 
 ## 10. Testing Strategy, Verification Matrix & Milestone Roadmap
 
-### 10.1 Synthetic Fixture Suite (`tests/fixtures/baileys-events/`)
+### 10.1 Synthetic Fixture Suite (`tests/fixtures/baileys-events/`) & Live Simulation (`simulation/`)
 Every milestone in Week 1 is verified against deterministic fixtures matching `docs/BAILEYS_INTEGRATION_SPEC.md`:
 1. `01_text_english_only.json`: Standard English event announcement (`conversation`, verifies `TEXT-MESSAGE` with `score >= 4.0` translating to all 4 languages).
 2. `02_text_mixed_code_switched.json`: Code-switched Malay + English announcement (*"Hari ini, we will open registration..."*, verifies unified meaning translation across all 4 languages).
@@ -972,17 +1001,19 @@ Every milestone in Week 1 is verified against deterministic fixtures matching `d
 10. `10_bot_self_echo.json`: Message with `key.fromMe = true` (verifies Gate 2 loop prevention).
 11. `11_prompt_injection_attempt.json`: Message attempting to override routing JIDs, system rules, or evaluation score (verifies `<untrusted_whatsapp_content>` isolation).
 
+In addition to automated unit/integration tests, **`npm run simulate:live` (`scripts/run-live-simulation.ts`)** processes realistic Baileys stanzas and images from `simulation/inbox/` through live Gemini API calls (`AI_PROVIDER=gemini`) and writes per-group JSON feeds and forwarded images to `simulation/outbox/`.
+
 ### 10.2 Milestone Execution & Verification Roadmap
 
 | Milestone | Target | Key Deliverables | Verification Gate |
 |---|---|---|---|
-| **M0: Init, Telemetry & Cloud VM** | Completed | Toolchain, `EnvConfigSchema`, `logger.ts`, `telemetry.ts`, `verify-environment.ts`, GCP `e2-micro` VM (`suaraputra-server`) readiness. | Passed (Phase 0 logs recorded; `better-sqlite3` `13.0.3` and Baileys `6.7.22` verified). |
-| **M1: Foundation & Persistence** | Week 1 | SQLite client + WAL/checkpoint pragmas (`001_initial_schema.sql` with `ingestion_seq` & `announcement_seq`), all 5 repositories, transactional helpers, GCP swap & systemd configuration. | Unit tests verify ACID transactions, `(chat_jid, message_id)` uniqueness, `idempotency_key` constraints, and FIFO poll order. |
-| **M2: Mock Transport & FIFO Ingestion** | Week 1 | `IWhatsAppAdapter`, `MockWhatsAppAdapter`, `event-normalizer.ts`, `message-ingestor.ts` (strict FIFO queue + 5 gates + eager buffer release), `media-store.ts`, `context-assembler.ts`. | All 11 synthetic fixtures normalize and enqueue in exact chronological FIFO order; image buffers free from RAM immediately after disk write. |
-| **M3: AI Processor & Validation** | Week 1 | `@google/genai` integration (`gemini-3.8-flash`), `ai-processor.ts`, `translation.prompt.ts`, `translation.schema.ts` (Nullable JSON), and `translation-validator.ts`. | Single AI call scores casual noise `< 4.0` (`null` translations), translates code-switched text, separates polished bilingual posts without re-translation, and translates image captions directly. |
-| **M4: Persistent Destination-Aware FIFO Queue & Dispatcher** | Week 1 | `queue.ts` (per-destination earlier-job barrier), `dispatcher.ts` (with single-read media cache), `retry-policy.ts`, `TEXT` / `IMAGE_CAPTION` / `IMAGE_ONLY` payload assembly, crash lease recovery. | Healthy work preserves chronology per destination; active earlier work blocks only the same destination, while independent destinations continue and terminal or uncertain jobs do not block. Image announcements use 1 disk read per image. |
-| **M5: E2E Synthetic Integration Suite** | Week 1 | Full pipeline integration tests wiring `MockWhatsAppAdapter` $\rightarrow$ FIFO Ingestor $\rightarrow$ AI Processor $\rightarrow$ SQLite FIFO Queue $\rightarrow$ Dispatcher, plus crash-restart simulation. | 100% pass rate across all 11 fixture scenarios and edge cases (FIFO burst ordering, replay deduplication, timeout quarantine, process restart recovery). |
-| **M6: Live Baileys Swap & GCP Deployment** | Week 1 (On SIM arrival) | `BaileysWhatsAppAdapter` (`baileys-client.ts`), QR/pairing script, Community group JID inspection, GCP `e2-micro` `systemd` deployment (`suaraputra.service`). | Live test messages (text, image+caption, image-only) in source group reliably broadcast in chronological order to the 4 destination groups on `suaraputra-server`; survives VM reboot. |
+| **M0 / M0.1: Init, Telemetry & GCP Guardrails** | Completed | Toolchain, `EnvConfigSchema`, `logger.ts`, `telemetry.ts`, `verify-environment.ts`, `setup-gcp-server.sh` (2 GB swap), `suaraputra.service`, GCP `e2-micro` VM readiness. | Passed (Phase 0 & 0.1 logs recorded; `better-sqlite3` `13.0.3` and Baileys `6.7.22` verified). |
+| **M1: Foundation & Persistence** | Completed | SQLite client + WAL/checkpoint pragmas (`001_initial_schema.sql` & `002_delivery_attempts.sql`), all 6 repositories, transactional helpers. | Passed (Unit tests verify ACID transactions, `(chat_jid, message_id)` uniqueness, `idempotency_key` constraints, and attempt lineage). |
+| **M2: Mock Transport & FIFO Ingestion** | Completed | `IWhatsAppAdapter`, `MockWhatsAppAdapter` (with file-backed outbox), `event-normalizer.ts`, `message-ingestor.ts` (timestamp-sorted FIFO queue + 5 gates + eager buffer release), `media-store.ts`, `context-assembler.ts`. | Passed (All 11 synthetic fixtures normalize and enqueue in exact chronological FIFO order; image buffers free from RAM immediately after disk write). |
+| **M3: AI Processor & Validation** | Completed | `@google/genai` integration (`gemini-3.8-flash`), `ai-processor.ts`, `translation.prompt.ts`, `translation.schema.ts` (Nullable JSON), and `translation-validator.ts`. | Passed (Single AI call scores casual noise `< 4.0`, translates code-switched text, separates polished bilingual posts, and persists held/ignored states durably). |
+| **M4: Persistent Destination-Aware FIFO Queue & Dispatcher** | Completed | `queue.ts` (per-destination earlier-job barrier), `dispatcher.ts` (single-read media cache + in-flight drain), `recovery-scheduler.ts`, `retry-policy.ts`. | Passed (Healthy work preserves chronology per destination; active earlier work blocks only the same destination; 57/57 Phase 5.1 tests pass). |
+| **M5 / M6.1: E2E Suite & 95% Live Gemini Simulation** | Week 1 | `src/app.ts` composition root, unified `CP01`–`CP09` telemetry, negative-path E2E tests (`e2e-pipeline.test.ts`), and `scripts/run-live-simulation.ts` (`simulation/inbox/` $\rightarrow$ `simulation/outbox/`). | 100% pass rate across all positive/negative E2E scenarios + verified live Gemini translations & forwarded images in `simulation/outbox/`. |
+| **M6.2: Live Baileys SIM Cutover & GCP Deployment** | Week 1 (On SIM arrival) | Live QR/pairing with redONE SIM (`WHATSAPP_ADAPTER_MODE=baileys`), Community group JID inspection, GCP `e2-micro` `systemd` daemon activation (`suaraputra.service`). | Live test messages (text, image+caption, image-only) in source group reliably broadcast in chronological order to the 4 destination groups on `suaraputra-server`; survives VM reboot. |
 | **M7: Web Admin Monitoring Dashboard** | Week 2 | `src/web/` HTTP server & dashboard UI for queue inspection, `uncertain`/`held` announcement review, and audit log viewing. | Operators can inspect system health, view side-by-side translations, and reconcile `uncertain` delivery jobs via web UI. |
 
 ---

@@ -149,7 +149,7 @@ export function normalizeUpsert(
       tracer.endCheckpoint('CP01_INGEST_NORMALIZE', {
         t_wa_source_sent_ms: timestampMs(message.messageTimestamp)
       });
-      if (result) normalized.push(result);
+      if (result) normalized.push({ ...result, tracer });
     } catch (error) {
       console.error(`[TRACE:${tracer.traceId}] [CP01_INGEST_NORMALIZE] FAILED`, {
         messageId,

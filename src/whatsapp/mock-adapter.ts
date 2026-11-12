@@ -1,3 +1,5 @@
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { extname, join, relative } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import pino from 'pino';
 import {
@@ -28,6 +30,8 @@ export interface MockWhatsAppAdapterOptions {
   faultMode?: MockFaultMode;
   faultModesByTarget?: Readonly<Record<string, MockFaultMode>>;
   faultModesByCallIndex?: Readonly<Record<number, MockFaultMode>>;
+  fileOutboxDir?: string;
+  groupJidToLanguageMap?: Readonly<Record<string, string>>;
   logger?: pino.Logger;
 }
 
@@ -94,6 +98,15 @@ export class MockWhatsAppAdapter implements IWhatsAppAdapter {
     const result = { outgoingMessageId: `mock-out-${this.sendCount}-${randomUUID()}`, acknowledgedAtIso: new Date(sentAtMs).toISOString() };
     this.logger.debug({ targetGroupJid, callIndex: this.sendCount }, 'Mock message sent');
     this.outbox.push({ targetGroupJid, payload, t_wa_translated_sent_ms: sentAtMs, sentAtIso: result.acknowledgedAtIso, result });
+    if (this.options.fileOutboxDir) {
+      await this.writeFileOutbox(
+        this.options.fileOutboxDir,
+        this.options.groupJidToLanguageMap?.[targetGroupJid],
+        targetGroupJid,
+        payload,
+        result
+      );
+    }
     return result;
   }
 
@@ -106,4 +119,58 @@ export class MockWhatsAppAdapter implements IWhatsAppAdapter {
   }
 
   getSentMessages(): readonly SentMessage[] { return [...this.outbox]; }
+
+  private async writeFileOutbox(
+    outboxDir: string,
+    language: string | undefined,
+    targetGroupJid: string,
+    payload: OutboundMessagePayload,
+    result: SendMessageResult
+  ): Promise<void> {
+    if (!language) throw new Error(`No simulation language mapping for target group ${targetGroupJid}`);
+    const groupsDir = join(outboxDir, 'groups');
+    const mediaDir = join(outboxDir, 'media', language);
+    await mkdir(groupsDir, { recursive: true });
+    await mkdir(mediaDir, { recursive: true });
+    const sequence = this.sendCount;
+    let savedMediaPath: string | null = null;
+    let text: string | null = null;
+    let caption: string | null = null;
+    if (payload.type === 'TEXT') {
+      text = payload.text;
+    } else {
+      caption = payload.caption ?? null;
+      const extension = payload.mimeType === 'image/png' ? '.png' : '.jpg';
+      const mediaPath = join(mediaDir, `${sequence}_${result.outgoingMessageId}${extension}`);
+      await writeFile(mediaPath, payload.imageBuffer);
+      savedMediaPath = relative(outboxDir, mediaPath).replaceAll('\\', '/');
+    }
+    const entry = {
+      outgoingMessageId: result.outgoingMessageId,
+      acknowledgedAtIso: result.acknowledgedAtIso,
+      targetGroupJid,
+      language,
+      payloadType: payload.type,
+      ...(text !== null ? { text } : {}),
+      ...(caption !== null ? { caption } : {}),
+      ...(savedMediaPath ? { savedMediaPath } : {})
+    };
+    await this.appendJson(join(groupsDir, `${language}.json`), entry);
+    await this.appendJson(join(outboxDir, 'broadcast-log.json'), entry);
+  }
+
+  private async appendJson(path: string, entry: Readonly<Record<string, unknown>>): Promise<void> {
+    let entries: unknown[] = [];
+    try {
+      entries = JSON.parse(await readFile(path, 'utf8')) as unknown[];
+    } catch (error) {
+      if (!isFileNotFound(error)) throw error;
+    }
+    if (!Array.isArray(entries)) throw new Error(`Simulation outbox is not an array: ${path}`);
+    await writeFile(path, JSON.stringify([...entries, entry], null, 2), 'utf8');
+  }
+}
+
+function isFileNotFound(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }

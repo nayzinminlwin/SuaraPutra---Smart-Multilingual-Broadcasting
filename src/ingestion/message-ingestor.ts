@@ -5,11 +5,14 @@ import type { DatabaseClient } from '../database/client.js';
 import { AnnouncementRepository } from '../database/repositories/announcement.repo.js';
 import { DeliveryJobRepository } from '../database/repositories/delivery-job.repo.js';
 import { SourceMessageRepository } from '../database/repositories/source-message.repo.js';
+import { TranslationRepository } from '../database/repositories/translation.repo.js';
 import type { IWhatsAppAdapter, NormalizedInboundMessage, SupportedMessageKind } from '../whatsapp/adapter.js';
 import { PipelineTracer } from '../observability/telemetry.js';
 import { ContextAssembler, type AssembledContext } from './context-assembler.js';
 import { MessageDeduplicator } from './deduplicator.js';
 import { MediaStore } from './media-store.js';
+import type { AiProcessor } from '../ai/ai-processor.js';
+import type { DeliveryQueue } from '../delivery/queue.js';
 
 const LANGUAGE_ORDER: readonly { code: LanguageCode; order: 1 | 2 | 3 | 4 }[] = [
   { code: 'ms', order: 1 }, { code: 'en', order: 2 }, { code: 'zh-CN', order: 3 }, { code: 'ta', order: 4 }
@@ -26,6 +29,7 @@ export type IngestionResult = Readonly<{
 export interface MessageIngestorOptions {
   sourceGroupJid: string;
   botJid?: string | null;
+  botJidProvider?: string | null | (() => string | null);
   contextMaxMessages: number;
   contextWindowSeconds: number;
   destinationGroups: Readonly<Record<LanguageCode, string>>;
@@ -34,16 +38,29 @@ export interface MessageIngestorOptions {
   announcements: AnnouncementRepository;
   deliveryJobs: DeliveryJobRepository;
   database: DatabaseClient;
+  aiProcessor?: AiProcessor;
+  deliveryQueue?: DeliveryQueue;
+  onTracer?: (announcementId: string, tracer: PipelineTracer) => void;
 }
 
 export class MessageIngestor {
-  private queue: Promise<unknown> = Promise.resolve();
+  private readonly pendingQueue: Array<{
+    message: NormalizedInboundMessage;
+    arrivalSeq: number;
+    queuedAt: bigint;
+    resolve: (result: IngestionResult) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  private arrivalSeq = 0;
+  private isProcessing = false;
   private readonly deduplicator: MessageDeduplicator;
   private readonly context: ContextAssembler;
+  private readonly translations: TranslationRepository;
 
   constructor(private readonly options: MessageIngestorOptions) {
     this.deduplicator = new MessageDeduplicator(options.sources);
     this.context = new ContextAssembler(options.sources, options.contextMaxMessages, options.contextWindowSeconds);
+    this.translations = new TranslationRepository(options.database);
   }
 
   attach(adapter: IWhatsAppAdapter): void {
@@ -51,18 +68,56 @@ export class MessageIngestor {
   }
 
   enqueue(message: NormalizedInboundMessage): Promise<IngestionResult> {
-    const waitStarted = process.hrtime.bigint();
-    const task = this.queue.then(async () => {
-      const waitUs = Number((process.hrtime.bigint() - waitStarted) / 1000n);
-      console.log(`[TRACE:${message.messageId}] [CP02_FIFO_WAIT] DONE (${waitUs} μs)`, { queueConcurrency: 1 });
-      return this.process(message);
+    const tracer = message.tracer ?? new PipelineTracer({
+      messageId: message.messageId,
+      waSourceSentTimestampMs: message.timestampMs
     });
-    this.queue = task.then(() => undefined, () => undefined);
+    if (!message.tracer) {
+      tracer.startCheckpoint('CP01_INGEST_NORMALIZE');
+      tracer.endCheckpoint('CP01_INGEST_NORMALIZE', { bypassedNormalizer: true, durationUs: 0 });
+    }
+    tracer.startCheckpoint('CP02_FIFO_WAIT');
+    const task = new Promise<IngestionResult>((resolve, reject) => {
+      this.pendingQueue.push({
+        message: { ...message, tracer },
+        arrivalSeq: this.arrivalSeq++,
+        queuedAt: process.hrtime.bigint(),
+        resolve,
+        reject
+      });
+    });
+    void this.drainQueue();
     return task;
   }
 
+  private async drainQueue(): Promise<void> {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+    try {
+      while (this.pendingQueue.length > 0) {
+        this.pendingQueue.sort((a, b) =>
+          a.message.timestampMs - b.message.timestampMs || a.arrivalSeq - b.arrivalSeq
+        );
+        const item = this.pendingQueue.shift();
+        if (!item) continue;
+        item.message.tracer?.endCheckpoint('CP02_FIFO_WAIT', {
+          queueConcurrency: 1,
+          waitUs: Number((process.hrtime.bigint() - item.queuedAt) / 1000n)
+        });
+        try {
+          item.resolve(await this.process(item.message));
+        } catch (error) {
+          item.reject(error);
+        }
+      }
+    } finally {
+      this.isProcessing = false;
+      if (this.pendingQueue.length > 0) void this.drainQueue();
+    }
+  }
+
   private async process(message: NormalizedInboundMessage): Promise<IngestionResult> {
-    const tracer = new PipelineTracer({
+    const tracer = message.tracer ?? new PipelineTracer({
       messageId: message.messageId,
       waSourceSentTimestampMs: message.timestampMs
     });
@@ -75,7 +130,10 @@ export class MessageIngestor {
       tracer.endCheckpoint('CP03_GATE_CHECKS', { rejectedGate: 1 });
       return { accepted: false, reason: 'out_of_scope', message };
     }
-    if (!gate(!message.fromMe && message.senderJid !== (this.options.botJid ?? ''), 'GATE_2_SELF_ECHO')) {
+    const botJid = typeof this.options.botJidProvider === 'function'
+      ? this.options.botJidProvider()
+      : this.options.botJidProvider ?? this.options.botJid ?? null;
+    if (!gate(!message.fromMe && message.senderJid !== (botJid ?? ''), 'GATE_2_SELF_ECHO')) {
       tracer.endCheckpoint('CP03_GATE_CHECKS', { rejectedGate: 2 });
       return { accepted: false, reason: 'self_echo', message };
     }
@@ -97,8 +155,6 @@ export class MessageIngestor {
     console.log(`[TRACE:${tracer.traceId}] [CP03_GATE_CHECKS] GATE_5_MEDIA_PERSISTENCE`, {
       passed: true, ramBufferReleased: message.media?.buffer === null
     });
-    tracer.endCheckpoint('CP03_GATE_CHECKS', { accepted: true, ramBufferReleased: message.media?.buffer === null });
-
     const source = this.options.sources.insert({
       id: deterministicId('source', message.chatJid, message.messageId),
       chatJid: message.chatJid, messageId: message.messageId, senderJid: message.senderJid,
@@ -109,14 +165,178 @@ export class MessageIngestor {
       mediaMimeType: media?.mimeType ?? message.media?.mimeType ?? null,
       mediaSha256Hex: media?.sha256Hex ?? message.media?.fileSha256Hex ?? null, rawPayloadJson: message.rawPayloadJson
     });
-    const context = this.context.assemble(message, source);
-    if (message.kind !== 'IMAGE_ONLY') return { accepted: true, message, context };
+    tracer.endCheckpoint('CP03_GATE_CHECKS', { accepted: true, ramBufferReleased: message.media?.buffer === null });
+    const context = this.context.assemble(message, source, tracer);
+    if (message.kind !== 'IMAGE_ONLY') {
+      if (!this.options.aiProcessor || !this.options.deliveryQueue) {
+        return { accepted: true, message, context };
+      }
+      const payloadType = message.kind === 'TEXT' || message.kind === 'IMAGE_CAPTION'
+        ? message.kind
+        : (() => { throw new Error(`Unsupported message kind: ${message.kind}`); })();
+      const announcementId = deterministicId('announcement', source.id);
+      this.createProcessingAnnouncement(announcementId, source.id, message, payloadType, context, media);
+      let aiResult;
+      try {
+        aiResult = await this.options.aiProcessor.process({
+          id: announcementId,
+          type: payloadType === 'IMAGE_CAPTION' ? 'TEXT CAPTION FROM IMAGE' : 'TEXT-MESSAGE',
+          content: message.text ?? '',
+          sourceText: message.text ?? '',
+          otherAttributes: this.contextForAi(context),
+          announcementId,
+          tracer
+        });
+      } catch (error) {
+        this.options.announcements.updateOutcome(announcementId, {
+          classification: 'announcement',
+          evaluationScore: 0,
+          status: 'held_validation_failed'
+        });
+        this.options.onTracer?.(announcementId, tracer);
+        return { accepted: true, message, context, announcementId };
+      }
+      if (aiResult.status === 'ignored') {
+        this.options.announcements.updateOutcome(announcementId, {
+          classification: 'not_announcement',
+          evaluationScore: aiResult.response.score,
+          status: 'ignored',
+          rawAiResponseJson: JSON.stringify(aiResult.response)
+        });
+        this.options.onTracer?.(announcementId, tracer);
+        return { accepted: true, message, context, announcementId };
+      }
+      if (aiResult.status === 'held_validation_failed' || !aiResult.validation?.valid) {
+        this.options.announcements.updateOutcome(announcementId, {
+          classification: 'announcement',
+          evaluationScore: aiResult.response.score,
+          status: 'held_validation_failed',
+          rawAiResponseJson: JSON.stringify(aiResult.response)
+        });
+        this.persistFailedTranslations(announcementId, aiResult.response, aiResult.validation?.errors ?? []);
+        this.options.onTracer?.(announcementId, tracer);
+        return { accepted: true, message, context, announcementId };
+      }
+      const fields = {
+        en: aiResult.response.English,
+        ms: aiResult.response.Malay,
+        ta: aiResult.response.Tamil,
+        'zh-CN': aiResult.response.Mandarin
+      } as const;
+      const mediaLocalPath = media?.localPath ?? null;
+      const queued = this.options.deliveryQueue.persistAnnouncement({
+        announcement: {
+          id: announcementId,
+          primarySourceMessageId: source.id,
+          sourceTimestampMs: message.timestampMs,
+          classification: 'announcement',
+          evaluationScore: aiResult.response.score,
+          status: 'processing',
+          payloadType,
+          mediaLocalPath,
+          mediaMimeType: media?.mimeType ?? message.media?.mimeType ?? null,
+          rawAiResponseJson: JSON.stringify(aiResult.response)
+        },
+        sources: [...new Set(context.sourceMessageIds)].map((sourceMessageId) => ({
+          sourceMessageId,
+          role: sourceMessageId === source.id ? 'primary' as const : 'window_context' as const
+        })),
+        translations: (Object.entries(fields) as Array<[LanguageCode, string | null]>).map(([languageCode, content]) => {
+          if (!content) throw new Error(`AI response did not contain translation for ${languageCode}`);
+          return {
+            id: newId(),
+            languageCode,
+            content,
+            validationStatus: 'passed' as const
+          };
+        }),
+        mediaLocalPath,
+        mediaMimeType: media?.mimeType ?? message.media?.mimeType ?? null,
+        tracer
+      });
+      this.options.onTracer?.(queued.announcementId, tracer);
+      return { accepted: true, message, context, announcementId: queued.announcementId };
+    }
+
     if (!media?.localPath) throw new Error(`Image-only message ${message.messageId} was not persisted`);
-    return { accepted: true, message, context, announcementId: this.createPassthrough(source.id, message, media.localPath) };
+    const announcementId = this.createPassthrough(source.id, message, media.localPath, tracer);
+    this.options.onTracer?.(announcementId, tracer);
+    return { accepted: true, message, context, announcementId };
   }
 
-  private createPassthrough(sourceId: string, message: NormalizedInboundMessage, mediaLocalPath: string): string {
+  private createProcessingAnnouncement(
+    announcementId: string,
+    sourceId: string,
+    message: NormalizedInboundMessage,
+    payloadType: 'TEXT' | 'IMAGE_CAPTION',
+    context: AssembledContext,
+    media: { localPath: string; mimeType: string } | null
+  ): void {
+    const quotedId = context.quoted && 'id' in context.quoted ? context.quoted.id : null;
+    const sources = [...new Set(context.sourceMessageIds)].map(sourceMessageId => ({
+      sourceMessageId,
+      role: sourceMessageId === sourceId
+        ? 'primary' as const
+        : sourceMessageId === quotedId
+          ? 'quoted' as const
+          : 'window_context' as const
+    }));
+    this.options.announcements.createWithSources({
+      id: announcementId,
+      primarySourceMessageId: sourceId,
+      sourceTimestampMs: message.timestampMs,
+      classification: 'announcement',
+      evaluationScore: payloadType === 'IMAGE_CAPTION' ? 10 : 0,
+      status: 'processing',
+      payloadType,
+      mediaLocalPath: media?.localPath ?? null,
+      mediaMimeType: media?.mimeType ?? message.media?.mimeType ?? null
+    }, sources);
+  }
+
+  private persistFailedTranslations(
+    announcementId: string,
+    response: { English: string | null; Malay: string | null; Tamil: string | null; Mandarin: string | null },
+    errors: readonly string[]
+  ): void {
+    const fields = {
+      en: response.English,
+      ms: response.Malay,
+      ta: response.Tamil,
+      'zh-CN': response.Mandarin
+    } as const;
+    for (const [languageCode, content] of Object.entries(fields) as Array<[LanguageCode, string | null]>) {
+      if (content !== null) {
+        this.translations.insert({
+          id: newId(),
+          announcementId,
+          languageCode,
+          content,
+          validationStatus: 'failed',
+          validationErrorsJson: JSON.stringify(errors)
+        });
+      }
+    }
+  }
+
+  private contextForAi(context: AssembledContext): string {
+    const related = [
+      context.quoted && 'textContent' in context.quoted
+        ? context.quoted.textContent
+        : context.quoted && 'text' in context.quoted ? context.quoted.text : null,
+      ...context.recent.map(source => source.textContent)
+    ].filter((value): value is string => Boolean(value));
+    return related.length > 0 ? `Related context:\n${related.join('\n')}` : '';
+  }
+
+  private createPassthrough(
+    sourceId: string,
+    message: NormalizedInboundMessage,
+    mediaLocalPath: string,
+    tracer: PipelineTracer
+  ): string {
     const announcementId = deterministicId('announcement', sourceId);
+    tracer.startCheckpoint('CP07_QUEUE_PERSIST');
     const announcement = this.options.database.transaction(() => {
       const created = this.options.announcements.createWithSources({
         id: announcementId, primarySourceMessageId: sourceId, sourceTimestampMs: message.timestampMs,
@@ -131,6 +351,7 @@ export class MessageIngestor {
       })));
       return created.id;
     });
+    tracer.endCheckpoint('CP07_QUEUE_PERSIST', { jobs: 4, announcementId });
     return announcement;
   }
 
