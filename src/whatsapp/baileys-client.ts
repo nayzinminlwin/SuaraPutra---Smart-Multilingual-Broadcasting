@@ -113,7 +113,13 @@ export class BaileysWhatsAppAdapter implements IWhatsAppAdapter {
     });
     this.socket = socket;
     socket.ev.on('creds.update', saveCreds);
-    socket.ev.on('messages.upsert', (upsert) => { void this.handleUpsert(socket, upsert); });
+    socket.ev.on('messages.upsert', (upsert) => {
+      void this.handleUpsert(socket, upsert).catch(error => {
+        this.logger.error({
+          errorCode: error instanceof Error ? error.name : 'WHATSAPP_UPSERT_ERROR'
+        }, 'WhatsApp upsert handling failed');
+      });
+    });
     socket.ev.on('connection.update', (update) => { void this.handleConnectionUpdate(update); });
     this.setStatus('connecting');
   }
@@ -121,22 +127,29 @@ export class BaileysWhatsAppAdapter implements IWhatsAppAdapter {
   private async handleUpsert(socket: WASocket, upsert: { messages: WAMessage[]; type: string }): Promise<void> {
     if (upsert.type !== 'notify') return;
     for (const message of upsert.messages) {
-      if (!message.key.remoteJid || !isJidGroup(message.key.remoteJid) || message.key.fromMe || !message.message) continue;
-      const content = normalizeMessageContent(message.message);
-      const image = content?.imageMessage;
-      const buffers: Record<string, Buffer> = {};
-      if (image && message.key.id) {
-        buffers[message.key.id] = await downloadMediaMessage(
-          message, 'buffer', {}, { logger: socket.logger, reuploadRequest: socket.updateMediaMessage }
+      try {
+        if (!message.key.remoteJid || !isJidGroup(message.key.remoteJid) || message.key.fromMe || !message.message) continue;
+        const content = normalizeMessageContent(message.message);
+        const image = content?.imageMessage;
+        const buffers: Record<string, Buffer> = {};
+        if (image && message.key.id) {
+          buffers[message.key.id] = await downloadMediaMessage(
+            message, 'buffer', {}, { logger: socket.logger, reuploadRequest: socket.updateMediaMessage }
+          );
+        }
+        const normalized = normalizeUpsert(
+          { messages: [{ ...message, message: content }], type: 'notify' },
+          buffers,
+          { maxMediaBytes: this.config.MAX_MEDIA_BYTES }
         );
-      }
-      const normalized = normalizeUpsert(
-        { messages: [{ ...message, message: content }], type: 'notify' },
-        buffers,
-        { maxMediaBytes: this.config.MAX_MEDIA_BYTES }
-      );
-      for (const item of normalized) {
-        for (const handler of this.messageHandlers) await handler(item);
+        for (const item of normalized) {
+          for (const handler of this.messageHandlers) await handler(item);
+        }
+      } catch (error) {
+        this.logger.error({
+          messageId: message.key.id ?? undefined,
+          errorCode: error instanceof Error ? error.name : 'WHATSAPP_MESSAGE_ERROR'
+        }, 'WhatsApp inbound message handling failed');
       }
     }
   }

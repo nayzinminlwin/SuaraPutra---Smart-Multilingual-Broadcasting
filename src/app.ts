@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { parseEnv, type EnvConfig } from './config/env.js';
 import { getGroupRouting } from './config/groups.js';
 import { AiProcessor } from './ai/ai-processor.js';
@@ -38,6 +40,7 @@ export class SuaraPutraApplication {
   private readonly recovery: DeliveryRecoveryScheduler;
   private readonly logger;
   private dispatchTimer: ReturnType<typeof setInterval> | null = null;
+  private retentionTimer: ReturnType<typeof setInterval> | null = null;
   private readonly tracers = new Map<string, PipelineTracer>();
   private started = false;
 
@@ -68,7 +71,7 @@ export class SuaraPutraApplication {
       eventLogs: events
     });
     this.ingestor = new MessageIngestor(messageIngestorOptionsFromConfig(this.config, {
-      botJid: this.adapter.getBotJid(),
+      botJidProvider: () => this.adapter.getBotJid(),
       sources,
       announcements,
       deliveryJobs: jobs,
@@ -100,6 +103,9 @@ export class SuaraPutraApplication {
     if (this.started) return;
     this.started = true;
     this.recovery.start();
+    await this.runRetention();
+    this.retentionTimer = setInterval(() => { void this.runRetention(); }, 24 * 60 * 60 * 1000);
+    this.retentionTimer.unref?.();
     await this.adapter.connect();
   }
 
@@ -108,10 +114,25 @@ export class SuaraPutraApplication {
     this.started = false;
     if (this.dispatchTimer) clearInterval(this.dispatchTimer);
     this.dispatchTimer = null;
+    const drained = await this.dispatcher.stopAndDrain(this.config.DELIVERY_SEND_TIMEOUT_MS);
+    if (!drained) this.logger.warn({ timeoutMs: this.config.DELIVERY_SEND_TIMEOUT_MS }, 'Active dispatch did not drain before shutdown');
     this.recovery.stop();
+    if (this.retentionTimer) clearInterval(this.retentionTimer);
+    this.retentionTimer = null;
     await this.adapter.disconnect();
     this.database.database.pragma('wal_checkpoint(TRUNCATE)');
     this.database.close();
+  }
+
+  private async runRetention(): Promise<void> {
+    try {
+      const result = await this.health.runRetention();
+      this.logger.info({ ...result }, 'DATA_RETENTION_COMPLETED');
+    } catch (error) {
+      this.logger.error({
+        errorCode: error instanceof Error ? error.name : 'DATA_RETENTION_ERROR'
+      }, 'DATA_RETENTION_FAILED');
+    }
   }
 
   private startDispatchLoop(): void {
@@ -152,6 +173,10 @@ async function main(): Promise<void> {
   await application.start();
 }
 
-if (import.meta.url === `file://${process.argv[1]?.replaceAll('\\', '/')}`) {
+const isDirectRun = process.argv[1]
+  ? import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+  : false;
+
+if (isDirectRun) {
   void main();
 }

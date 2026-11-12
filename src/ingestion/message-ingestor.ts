@@ -29,6 +29,7 @@ export type IngestionResult = Readonly<{
 export interface MessageIngestorOptions {
   sourceGroupJid: string;
   botJid?: string | null;
+  botJidProvider?: string | null | (() => string | null);
   contextMaxMessages: number;
   contextWindowSeconds: number;
   destinationGroups: Readonly<Record<LanguageCode, string>>;
@@ -129,7 +130,10 @@ export class MessageIngestor {
       tracer.endCheckpoint('CP03_GATE_CHECKS', { rejectedGate: 1 });
       return { accepted: false, reason: 'out_of_scope', message };
     }
-    if (!gate(!message.fromMe && message.senderJid !== (this.options.botJid ?? ''), 'GATE_2_SELF_ECHO')) {
+    const botJid = typeof this.options.botJidProvider === 'function'
+      ? this.options.botJidProvider()
+      : this.options.botJidProvider ?? this.options.botJid ?? null;
+    if (!gate(!message.fromMe && message.senderJid !== (botJid ?? ''), 'GATE_2_SELF_ECHO')) {
       tracer.endCheckpoint('CP03_GATE_CHECKS', { rejectedGate: 2 });
       return { accepted: false, reason: 'self_echo', message };
     }

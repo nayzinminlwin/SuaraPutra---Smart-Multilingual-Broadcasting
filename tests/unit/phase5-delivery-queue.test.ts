@@ -38,6 +38,7 @@ describe('Phase 5 delivery queue and dispatcher', () => {
 
   function createHarness(options: {
     faultModesByTarget?: Readonly<Record<string, 'TRANSIENT_ERROR' | 'AMBIGUOUS_TIMEOUT'>>;
+    latencyMs?: number;
   } = {}) {
     const directory = mkdtempSync(join(tmpdir(), 'suaraputra-phase5-'));
     const client = new DatabaseClient(join(directory, 'test.sqlite'));
@@ -53,6 +54,7 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     );
     const adapter = new MockWhatsAppAdapter({
       faultModesByTarget: options.faultModesByTarget,
+      latencyMs: options.latencyMs,
       botJid: '60100000000@s.whatsapp.net'
     });
     return { client, directory, queue, adapter };
@@ -517,6 +519,7 @@ describe('Phase 5 delivery queue and dispatcher', () => {
       messageId: 'attempts',
       waSourceSentTimestampMs: 1000
     });
+
     const dispatcher = new DeliveryDispatcher({
       adapter: harness.adapter,
       queue: harness.queue,
@@ -542,6 +545,23 @@ describe('Phase 5 delivery queue and dispatcher', () => {
       failure_kind: 'transient',
       attempt_number: 1
     });
+  });
+
+  it('drains an active dispatch before the dispatcher is stopped', async () => {
+    const harness = createHarness({ latencyMs: 25 });
+    const value = announcement('drain-active', 'source-drain-active', 1000);
+    persist(harness, value);
+    const dispatcher = new DeliveryDispatcher({
+      adapter: harness.adapter,
+      queue: harness.queue,
+      pacingMs: 0
+    });
+
+    const activeDispatch = dispatcher.dispatchOnce();
+    expect(await dispatcher.stopAndDrain(1000)).toBe(true);
+    expect(await activeDispatch).toBe('sent');
+    expect(harness.adapter.getSentMessages()).toHaveLength(1);
+    expect(await dispatcher.dispatchOnce()).toBe('idle');
   });
 
   it('records successful attempts and does not reopen a failed operation on retry', async () => {

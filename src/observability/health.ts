@@ -1,4 +1,4 @@
-import { readdir, stat, unlink } from 'node:fs/promises';
+import { mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EnvConfig } from '../config/env.js';
 import type { DatabaseClient } from '../database/client.js';
@@ -57,6 +57,7 @@ export class HealthMonitor {
   async runRetention(): Promise<{ deletedMediaFiles: number; prunedSourceRows: number }> {
     const cutoff = new Date(Date.now() - this.config.DATA_RETENTION_DAYS * 86_400_000);
     let deletedMediaFiles = 0;
+    await mkdir(this.config.MEDIA_STORAGE_DIR, { recursive: true });
     for (const name of await readdir(this.config.MEDIA_STORAGE_DIR)) {
       const path = join(this.config.MEDIA_STORAGE_DIR, name);
       const file = await stat(path);

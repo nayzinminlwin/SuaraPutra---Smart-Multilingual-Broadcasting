@@ -37,7 +37,10 @@ describe('Phase 3 ingestion pipeline', () => {
     }
   });
 
-  function createIngestor(aiProcessor?: AiProcessor) {
+  function createIngestor(
+    aiProcessor?: AiProcessor,
+    botJidProvider?: () => string | null
+  ) {
     const directory = mkdtempSync(join(tmpdir(), 'suaraputra-phase3-'));
     const client = new DatabaseClient(join(directory, 'test.sqlite'));
     new MigrationRunner(client).migrate();
@@ -52,7 +55,8 @@ describe('Phase 3 ingestion pipeline', () => {
       sources,
       ingestor: new MessageIngestor({
         sourceGroupJid: sourceJid,
-        botJid: '60100000000@s.whatsapp.net',
+        botJid: botJidProvider ? undefined : '60100000000@s.whatsapp.net',
+        botJidProvider,
         contextMaxMessages: 5,
         contextWindowSeconds: 300,
         destinationGroups,
@@ -90,6 +94,18 @@ describe('Phase 3 ingestion pipeline', () => {
     expect((await ingestor.enqueue(base)).accepted).toBe(true);
     expect((await ingestor.enqueue(base)).reason).toBe('duplicate');
     expect(sources.findById('does-not-exist')).toBeNull();
+  });
+
+  it('resolves the current bot JID dynamically for self-echo filtering', async () => {
+    let currentBotJid: string | null = null;
+    const { ingestor } = createIngestor(undefined, () => currentBotJid);
+    const message = textMessage('dynamic-bot');
+    currentBotJid = message.senderJid;
+
+    expect((await ingestor.enqueue(message)).reason).toBe('self_echo');
+
+    currentBotJid = '60100000002@s.whatsapp.net';
+    expect((await ingestor.enqueue({ ...message, messageId: 'after-connect' })).accepted).toBe(true);
   });
 
   it('uses the architecture-defined content hash formulas', async () => {

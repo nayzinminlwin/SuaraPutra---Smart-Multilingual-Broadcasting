@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApplication } from '../../src/app.js';
 import { MockModelProvider } from '../../src/ai/model-provider.js';
 import { MockWhatsAppAdapter } from '../../src/whatsapp/mock-adapter.js';
@@ -54,7 +54,9 @@ describe('Phase 6 end-to-end pipeline', () => {
     });
     applications.push(app);
 
+    const retention = vi.spyOn(app.health, 'runRetention');
     await app.start();
+    expect(retention).toHaveBeenCalledTimes(1);
     for (let fixture = 1; fixture <= 11; fixture += 1) {
       const fixtureName = `${String(fixture).padStart(2, '0')}_`;
       const file = (await import('node:fs/promises')).readdir(join(process.cwd(), 'tests', 'fixtures', 'baileys-events'))
