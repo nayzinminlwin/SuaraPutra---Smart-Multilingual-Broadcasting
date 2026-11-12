@@ -112,7 +112,7 @@ export class PipelineTracer {
     if (this.records.some((record) => record.outcome === 'failed')) {
       throw new Error('Cannot finalize journey with failed checkpoints');
     }
-    const totalPipelineUs = Number((process.hrtime.bigint() - this.startedAt) / 1000n);
+    const totalPipelineUs = this.records.reduce((total, record) => total + record.durationUs, 0);
     const summary = {
       traceId: this.traceId,
       messageId: this.messageId,
@@ -128,5 +128,9 @@ export class PipelineTracer {
 
   get checkpoints(): readonly CheckpointRecord[] {
     return [...this.records];
+  }
+
+  getCheckpoints(): readonly CheckpointRecord[] {
+    return this.checkpoints;
   }
 }

@@ -67,10 +67,10 @@ describe('Phase 3 ingestion pipeline', () => {
     };
   }
 
-  function textMessage(messageId: string): NormalizedInboundMessage {
+  function textMessage(messageId: string, timestampMs = 1794227520000): NormalizedInboundMessage {
     return {
       chatJid: sourceJid, messageId, senderJid: '60100000001@s.whatsapp.net',
-      senderPushName: null, fromMe: false, timestampMs: 1794227520000, kind: 'TEXT',
+      senderPushName: null, fromMe: false, timestampMs, kind: 'TEXT',
       text: 'Community notice https://upm.edu.my/notice', quotedMessageId: null,
       quotedParticipantJid: null, quotedText: null, media: null, rawPayloadJson: '{}'
     };
@@ -120,6 +120,55 @@ describe('Phase 3 ingestion pipeline', () => {
     expect(readFileSync(join(directory, 'media', 'fixture-07-caption.jpg')).byteLength).toBeGreaterThan(0);
     expect(readFileSync(join(directory, 'media', 'fixture-07-image.jpg')).byteLength).toBeGreaterThan(0);
     expect(client.database.prepare('SELECT COUNT(*) AS count FROM delivery_jobs').get()).toEqual({ count: 4 });
+  });
+
+  it('reuses the normalizer tracer and sorts pending messages by timestamp', async () => {
+    let markFirstStarted: (() => void) | undefined;
+    let releaseFirst: (() => void) | undefined;
+    const firstStarted = new Promise<void>(resolve => { markFirstStarted = resolve; });
+    const firstRelease = new Promise<void>(resolve => { releaseFirst = resolve; });
+    let calls = 0;
+    const processor = new AiProcessor({
+      provider: new MockModelProvider([(request: ModelGenerateRequest) => {
+        calls += 1;
+        if (calls === 1) {
+          markFirstStarted?.();
+          return firstRelease.then(() => ({
+            id: request.id, score: 8,
+            English: 'Notice https://upm.edu.my/notice',
+            Malay: 'Notis https://upm.edu.my/notice',
+            Tamil: 'அறிவிப்பு https://upm.edu.my/notice',
+            Mandarin: '通知 https://upm.edu.my/notice'
+          }));
+        }
+        return {
+          id: request.id, score: 8,
+          English: 'Notice https://upm.edu.my/notice',
+          Malay: 'Notis https://upm.edu.my/notice',
+          Tamil: 'அறிவிப்பு https://upm.edu.my/notice',
+          Mandarin: '通知 https://upm.edu.my/notice'
+        };
+      }]),
+      sleep: async () => undefined
+    });
+    const { ingestor, client } = createIngestor(processor);
+    const first = ingestor.enqueue(textMessage('slow-first', 3000));
+    await firstStarted;
+    const early = ingestor.enqueue(textMessage('early-pending', 1000));
+    const middle = ingestor.enqueue(textMessage('middle-pending', 2000));
+    releaseFirst?.();
+    const results = await Promise.all([first, early, middle]);
+
+    expect(results.every(result => result.accepted)).toBe(true);
+    expect(client.database.prepare(
+      'SELECT message_id FROM source_messages ORDER BY ingestion_seq ASC'
+    ).all()).toEqual([
+      { message_id: 'slow-first' },
+      { message_id: 'early-pending' },
+      { message_id: 'middle-pending' }
+    ]);
+    expect(results[0].message.tracer?.getCheckpoints().map(checkpoint => checkpoint.name))
+      .toContain('CP02_FIFO_WAIT');
   });
 
   it('serializes a chronological burst and preserves bounded quoted context', async () => {

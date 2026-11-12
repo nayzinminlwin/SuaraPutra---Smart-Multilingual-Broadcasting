@@ -43,7 +43,15 @@ export interface MessageIngestorOptions {
 }
 
 export class MessageIngestor {
-  private queue: Promise<unknown> = Promise.resolve();
+  private readonly pendingQueue: Array<{
+    message: NormalizedInboundMessage;
+    arrivalSeq: number;
+    queuedAt: bigint;
+    resolve: (result: IngestionResult) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  private arrivalSeq = 0;
+  private isProcessing = false;
   private readonly deduplicator: MessageDeduplicator;
   private readonly context: ContextAssembler;
   private readonly translations: TranslationRepository;
@@ -59,18 +67,56 @@ export class MessageIngestor {
   }
 
   enqueue(message: NormalizedInboundMessage): Promise<IngestionResult> {
-    const waitStarted = process.hrtime.bigint();
-    const task = this.queue.then(async () => {
-      const waitUs = Number((process.hrtime.bigint() - waitStarted) / 1000n);
-      console.log(`[TRACE:${message.messageId}] [CP02_FIFO_WAIT] DONE (${waitUs} μs)`, { queueConcurrency: 1 });
-      return this.process(message);
+    const tracer = message.tracer ?? new PipelineTracer({
+      messageId: message.messageId,
+      waSourceSentTimestampMs: message.timestampMs
     });
-    this.queue = task.then(() => undefined, () => undefined);
+    if (!message.tracer) {
+      tracer.startCheckpoint('CP01_INGEST_NORMALIZE');
+      tracer.endCheckpoint('CP01_INGEST_NORMALIZE', { bypassedNormalizer: true, durationUs: 0 });
+    }
+    tracer.startCheckpoint('CP02_FIFO_WAIT');
+    const task = new Promise<IngestionResult>((resolve, reject) => {
+      this.pendingQueue.push({
+        message: { ...message, tracer },
+        arrivalSeq: this.arrivalSeq++,
+        queuedAt: process.hrtime.bigint(),
+        resolve,
+        reject
+      });
+    });
+    void this.drainQueue();
     return task;
   }
 
+  private async drainQueue(): Promise<void> {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+    try {
+      while (this.pendingQueue.length > 0) {
+        this.pendingQueue.sort((a, b) =>
+          a.message.timestampMs - b.message.timestampMs || a.arrivalSeq - b.arrivalSeq
+        );
+        const item = this.pendingQueue.shift();
+        if (!item) continue;
+        item.message.tracer?.endCheckpoint('CP02_FIFO_WAIT', {
+          queueConcurrency: 1,
+          waitUs: Number((process.hrtime.bigint() - item.queuedAt) / 1000n)
+        });
+        try {
+          item.resolve(await this.process(item.message));
+        } catch (error) {
+          item.reject(error);
+        }
+      }
+    } finally {
+      this.isProcessing = false;
+      if (this.pendingQueue.length > 0) void this.drainQueue();
+    }
+  }
+
   private async process(message: NormalizedInboundMessage): Promise<IngestionResult> {
-    const tracer = new PipelineTracer({
+    const tracer = message.tracer ?? new PipelineTracer({
       messageId: message.messageId,
       waSourceSentTimestampMs: message.timestampMs
     });
@@ -105,8 +151,6 @@ export class MessageIngestor {
     console.log(`[TRACE:${tracer.traceId}] [CP03_GATE_CHECKS] GATE_5_MEDIA_PERSISTENCE`, {
       passed: true, ramBufferReleased: message.media?.buffer === null
     });
-    tracer.endCheckpoint('CP03_GATE_CHECKS', { accepted: true, ramBufferReleased: message.media?.buffer === null });
-
     const source = this.options.sources.insert({
       id: deterministicId('source', message.chatJid, message.messageId),
       chatJid: message.chatJid, messageId: message.messageId, senderJid: message.senderJid,
@@ -117,6 +161,7 @@ export class MessageIngestor {
       mediaMimeType: media?.mimeType ?? message.media?.mimeType ?? null,
       mediaSha256Hex: media?.sha256Hex ?? message.media?.fileSha256Hex ?? null, rawPayloadJson: message.rawPayloadJson
     });
+    tracer.endCheckpoint('CP03_GATE_CHECKS', { accepted: true, ramBufferReleased: message.media?.buffer === null });
     const context = this.context.assemble(message, source, tracer);
     if (message.kind !== 'IMAGE_ONLY') {
       if (!this.options.aiProcessor || !this.options.deliveryQueue) {

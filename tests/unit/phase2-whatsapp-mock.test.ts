@@ -57,6 +57,8 @@ describe('Phase 2 WhatsApp transport and mock adapter', () => {
       expect.stringContaining('[CP01_INGEST_NORMALIZE] DONE'),
       expect.objectContaining({ t_wa_source_sent_ms: 1794227520000 })
     );
+    expect(result.tracer?.getCheckpoints().map(checkpoint => checkpoint.name))
+      .toEqual(['CP01_INGEST_NORMALIZE']);
     spy.mockRestore();
   });
 
