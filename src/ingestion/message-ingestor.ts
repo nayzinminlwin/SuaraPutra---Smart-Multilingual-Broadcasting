@@ -279,7 +279,7 @@ export class MessageIngestor {
       primarySourceMessageId: sourceId,
       sourceTimestampMs: message.timestampMs,
       classification: 'announcement',
-      evaluationScore: 0,
+      evaluationScore: payloadType === 'IMAGE_CAPTION' ? 10 : 0,
       status: 'processing',
       payloadType,
       mediaLocalPath: media?.localPath ?? null,
