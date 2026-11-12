@@ -102,6 +102,9 @@ export class SuaraPutraApplication {
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
+    const interruptedCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const recovered = await this.ingestor.recoverInterrupted(interruptedCutoff);
+    if (recovered > 0) this.logger.info({ recovered }, 'AI_INTERRUPTED_RECOVERY_COMPLETED');
     this.recovery.start();
     await this.runRetention();
     this.retentionTimer = setInterval(() => { void this.runRetention(); }, 24 * 60 * 60 * 1000);

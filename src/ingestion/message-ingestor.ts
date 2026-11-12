@@ -63,6 +63,100 @@ export class MessageIngestor {
     this.translations = new TranslationRepository(options.database);
   }
 
+  async recoverInterrupted(olderThanIso: string): Promise<number> {
+    if (!this.options.aiProcessor || !this.options.deliveryQueue) return 0;
+    let recovered = 0;
+    for (const announcement of this.options.announcements.findInterrupted(olderThanIso)) {
+      const source = this.options.sources.findById(announcement.primarySourceMessageId);
+      if (!source || source.messageKind === 'IMAGE_ONLY') {
+        this.options.announcements.updateOutcome(announcement.id, {
+          classification: 'announcement',
+          evaluationScore: announcement.evaluationScore,
+          status: 'held_validation_failed'
+        });
+        continue;
+      }
+      const tracer = new PipelineTracer({
+        messageId: source.messageId,
+        waSourceSentTimestampMs: source.timestampMs
+      });
+      let aiResult;
+      try {
+        aiResult = await this.options.aiProcessor.process({
+          id: announcement.id,
+          type: source.messageKind === 'IMAGE_CAPTION' ? 'TEXT CAPTION FROM IMAGE' : 'TEXT-MESSAGE',
+          content: source.textContent ?? '',
+          sourceText: source.textContent ?? '',
+          announcementId: announcement.id,
+          tracer
+        });
+      } catch (error) {
+        this.options.announcements.updateOutcome(announcement.id, {
+          classification: 'announcement',
+          evaluationScore: announcement.evaluationScore,
+          status: 'held_validation_failed'
+        });
+        console.error('[AI_RECOVERY_FAILED]', {
+          announcementId: announcement.id,
+          errorCode: error instanceof Error ? error.name : 'AI_RECOVERY_ERROR'
+        });
+        continue;
+      }
+      if (aiResult.status === 'ignored') {
+        this.options.announcements.updateOutcome(announcement.id, {
+          classification: 'not_announcement',
+          evaluationScore: aiResult.response.score,
+          status: 'ignored',
+          rawAiResponseJson: JSON.stringify(aiResult.response)
+        });
+        recovered += 1;
+        continue;
+      }
+      if (aiResult.status === 'held_validation_failed' || !aiResult.validation?.valid) {
+        this.options.announcements.updateOutcome(announcement.id, {
+          classification: 'announcement',
+          evaluationScore: aiResult.response.score,
+          status: 'held_validation_failed',
+          rawAiResponseJson: JSON.stringify(aiResult.response)
+        });
+        this.persistFailedTranslations(announcement.id, aiResult.response, aiResult.validation?.errors ?? []);
+        recovered += 1;
+        continue;
+      }
+      const fields = {
+        en: aiResult.response.English,
+        ms: aiResult.response.Malay,
+        ta: aiResult.response.Tamil,
+        'zh-CN': aiResult.response.Mandarin
+      } as const;
+      this.options.deliveryQueue.persistAnnouncement({
+        announcement: {
+          id: announcement.id,
+          primarySourceMessageId: source.id,
+          sourceTimestampMs: source.timestampMs,
+          classification: 'announcement',
+          evaluationScore: aiResult.response.score,
+          status: 'processing',
+          payloadType: announcement.payloadType,
+          mediaLocalPath: source.mediaLocalPath,
+          mediaMimeType: source.mediaMimeType,
+          rawAiResponseJson: JSON.stringify(aiResult.response)
+        },
+        sources: [{ sourceMessageId: source.id, role: 'primary' }],
+        translations: (Object.entries(fields) as Array<[LanguageCode, string | null]>).map(([languageCode, content]) => {
+          if (!content) throw new Error(`AI recovery response did not contain ${languageCode}`);
+          return { id: newId(), languageCode, content, validationStatus: 'passed' as const };
+        }),
+        mediaLocalPath: source.mediaLocalPath,
+        mediaMimeType: source.mediaMimeType,
+        tracer
+      });
+      this.options.onTracer?.(announcement.id, tracer);
+      recovered += 1;
+    }
+    return recovered;
+  }
+
   attach(adapter: IWhatsAppAdapter): void {
     adapter.onMessage(message => this.enqueue(message).then(() => undefined));
   }

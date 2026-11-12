@@ -189,6 +189,30 @@ export class DeliveryQueue {
       level: 'INFO',
       details: { attemptId, outgoingMessageId }
     });
+    this.reconcileAnnouncementStatus(jobId);
+  }
+
+  reconcileAnnouncementStatus(jobId: string): void {
+    const job = this.jobs.findById(jobId);
+    if (!job) throw new Error(`Delivery job not found: ${jobId}`);
+    const jobs = this.jobs.listForAnnouncement(job.announcementId);
+    if (jobs.length !== 4 || jobs.some(candidate =>
+      !['sent', 'failed_permanent', 'uncertain', 'cancelled'].includes(candidate.status)
+    )) return;
+    const status = jobs.every(candidate => candidate.status === 'sent')
+      ? 'completed'
+      : 'partial_failure';
+    const announcement = this.announcements.findById(job.announcementId);
+    if (announcement && announcement.status !== status) {
+      this.announcements.updateStatus(job.announcementId, status);
+      this.events.append({
+        eventType: 'ANNOUNCEMENT_STATE_CHANGED',
+        relatedEntityType: 'announcement',
+        relatedEntityId: job.announcementId,
+        level: status === 'completed' ? 'INFO' : 'WARN',
+        details: { status, deliveryJobs: jobs.length }
+      });
+    }
   }
 
   recordPostSendPersistenceFailure(
@@ -253,6 +277,7 @@ export class DeliveryQueue {
       level: 'INFO',
       details: { from: 'sending', to: status, errorCode }
     });
+    this.reconcileAnnouncementStatus(jobId);
   }
 
   markAttemptUncertainAndJobUncertain(
@@ -279,6 +304,7 @@ export class DeliveryQueue {
       level: 'WARN',
       details: { from: 'sending', to: 'uncertain', errorCode }
     });
+    this.reconcileAnnouncementStatus(jobId);
   }
 
   markAttemptFailed(

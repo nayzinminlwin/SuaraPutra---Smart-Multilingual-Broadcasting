@@ -53,6 +53,7 @@ describe('Phase 3 ingestion pipeline', () => {
       directory,
       client,
       sources,
+      announcements,
       ingestor: new MessageIngestor({
         sourceGroupJid: sourceJid,
         botJid: botJidProvider ? undefined : '60100000000@s.whatsapp.net',
@@ -296,5 +297,56 @@ describe('Phase 3 ingestion pipeline', () => {
       "SELECT COUNT(*) AS count FROM translations WHERE validation_status = 'failed'"
     ).get()).toEqual({ count: 4 });
     expect(client.database.prepare('SELECT COUNT(*) AS count FROM delivery_jobs').get()).toEqual({ count: 0 });
+  });
+
+  it('recovers stale processing announcements in chronological order', async () => {
+    const calls: string[] = [];
+    const processor = new AiProcessor({
+      provider: new MockModelProvider([(request: ModelGenerateRequest) => {
+        calls.push(request.id);
+        return {
+          id: request.id,
+          score: 8,
+          English: 'English notice https://upm.edu.my/notice',
+          Malay: 'Notis https://upm.edu.my/notice',
+          Tamil: 'அறிவிப்பு https://upm.edu.my/notice',
+          Mandarin: '通知 https://upm.edu.my/notice'
+        };
+      }]),
+      sleep: async () => undefined
+    });
+    const harness = createIngestor(processor);
+    const source = harness.sources.insert({
+      id: 'recovery-source',
+      chatJid: sourceJid,
+      messageId: 'recovery-source',
+      senderJid: 'person@s.whatsapp.net',
+      timestampMs: 1794227520000,
+      messageKind: 'TEXT',
+      textContent: 'Notice https://upm.edu.my/notice',
+      contentHash: 'recovery-hash',
+      rawPayloadJson: '{}'
+    });
+    harness.announcements.createWithSources({
+      id: 'recovery-announcement',
+      primarySourceMessageId: source.id,
+      sourceTimestampMs: source.timestampMs,
+      classification: 'announcement',
+      evaluationScore: 0,
+      status: 'processing',
+      payloadType: 'TEXT'
+    }, [{ sourceMessageId: source.id, role: 'primary' }]);
+    harness.client.database.prepare(
+      "UPDATE announcements SET updated_at = '2000-01-01T00:00:00.000Z' WHERE id = ?"
+    ).run('recovery-announcement');
+
+    await expect(harness.ingestor.recoverInterrupted('2020-01-01T00:00:00.000Z')).resolves.toBe(1);
+    expect(calls).toEqual(['recovery-announcement']);
+    expect(harness.client.database.prepare(
+      'SELECT status FROM announcements WHERE id = ?'
+    ).get('recovery-announcement')).toEqual({ status: 'queued' });
+    expect(harness.client.database.prepare(
+      'SELECT COUNT(*) AS count FROM delivery_jobs WHERE announcement_id = ?'
+    ).get('recovery-announcement')).toEqual({ count: 4 });
   });
 });

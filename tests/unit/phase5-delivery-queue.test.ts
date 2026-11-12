@@ -253,6 +253,27 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     });
   });
 
+  it('marks announcements completed or partially failed after the fourth terminal job', async () => {
+    const complete = createHarness();
+    persist(complete, announcement('complete', 'source-complete', 1000));
+    const completeDispatcher = new DeliveryDispatcher({ adapter: complete.adapter, queue: complete.queue, pacingMs: 0 });
+    await completeDispatcher.dispatchUntilIdle();
+    expect(complete.client.database.prepare(
+      'SELECT status FROM announcements WHERE id = ?'
+    ).get('complete')).toEqual({ status: 'completed' });
+
+    const partial = createHarness();
+    persist(partial, announcement('partial', 'source-partial', 1000));
+    partial.client.database.prepare(
+      "UPDATE delivery_jobs SET status = 'failed_permanent' WHERE announcement_id = ? AND language_code = 'ms'"
+    ).run('partial');
+    const partialDispatcher = new DeliveryDispatcher({ adapter: partial.adapter, queue: partial.queue, pacingMs: 0 });
+    await partialDispatcher.dispatchUntilIdle();
+    expect(partial.client.database.prepare(
+      'SELECT status FROM announcements WHERE id = ?'
+    ).get('partial')).toEqual({ status: 'partial_failure' });
+  });
+
   it('keeps queued work untouched when the delivery kill switch is active', async () => {
     const harness = createHarness();
     persist(harness, announcement('paused', 'source-paused', 1000));
