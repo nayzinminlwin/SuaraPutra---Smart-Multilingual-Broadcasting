@@ -124,6 +124,10 @@ export class SuaraPutraApplication {
     this.database.close();
   }
 
+  getPipelineTracer(announcementId: string): PipelineTracer | undefined {
+    return this.tracers.get(announcementId);
+  }
+
   private async runRetention(): Promise<void> {
     try {
       const result = await this.health.runRetention();

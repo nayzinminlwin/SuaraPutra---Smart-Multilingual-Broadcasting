@@ -193,6 +193,7 @@ export class MessageIngestor {
           evaluationScore: 0,
           status: 'held_validation_failed'
         });
+        this.options.onTracer?.(announcementId, tracer);
         return { accepted: true, message, context, announcementId };
       }
       if (aiResult.status === 'ignored') {
@@ -202,6 +203,7 @@ export class MessageIngestor {
           status: 'ignored',
           rawAiResponseJson: JSON.stringify(aiResult.response)
         });
+        this.options.onTracer?.(announcementId, tracer);
         return { accepted: true, message, context, announcementId };
       }
       if (aiResult.status === 'held_validation_failed' || !aiResult.validation?.valid) {
@@ -212,6 +214,7 @@ export class MessageIngestor {
           rawAiResponseJson: JSON.stringify(aiResult.response)
         });
         this.persistFailedTranslations(announcementId, aiResult.response, aiResult.validation?.errors ?? []);
+        this.options.onTracer?.(announcementId, tracer);
         return { accepted: true, message, context, announcementId };
       }
       const fields = {

@@ -10,6 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/app.js",
     "dev": "tsx src/app.ts",
+    "simulate:live": "tsx scripts/run-live-simulation.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc -p tsconfig.json --noEmit",
