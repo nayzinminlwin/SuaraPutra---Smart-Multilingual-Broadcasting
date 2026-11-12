@@ -38,7 +38,7 @@ the phase has unresolved correctness and live-validation gaps.
 
 ## 3. Findings
 
-### FINDING-01 — Application entry-point check may prevent startup
+### FINDING-01 — Application entry-point check may prevent startup — Resolved
 
 **Severity:** Critical  
 **Location:** `src/app.ts`
@@ -50,7 +50,7 @@ execute.
 **Required correction:** Use a platform-safe module entry-point check or expose
 an explicit start function invoked by the package entry point.
 
-### FINDING-02 — CP01 and CP02 are not part of the final per-message trace
+### FINDING-02 — CP01 and CP02 are not part of the final per-message trace — Resolved
 
 **Severity:** High  
 **Locations:** `src/whatsapp/event-normalizer.ts`,
@@ -69,7 +69,7 @@ Currently:
 normalization through final dispatch, and record CP01 and CP02 on that same
 trace.
 
-### FINDING-03 — AI failure handling can mask the original error
+### FINDING-03 — AI failure handling can mask the original error — Resolved
 
 **Severity:** Critical  
 **Locations:** `src/ai/ai-processor.ts`, `src/ingestion/message-ingestor.ts`
@@ -83,7 +83,7 @@ found` and mask the actual provider error.
 make failure persistence create/update the durable record atomically without
 masking the original error.
 
-### FINDING-04 — Held validation failures are not durably recorded
+### FINDING-04 — Held validation failures are not durably recorded — Resolved
 
 **Severity:** High  
 **Location:** `src/ingestion/message-ingestor.ts`
@@ -95,7 +95,7 @@ creating a durable held announcement record or associated audit state.
 `held_validation_failed`, preserve the raw AI response and validation errors,
 and create no delivery jobs.
 
-### FINDING-05 — Ignored announcements omit their primary source association
+### FINDING-05 — Ignored announcements omit their primary source association — Resolved
 
 **Severity:** High  
 **Location:** `src/ingestion/message-ingestor.ts`
@@ -107,7 +107,7 @@ to treat the source as unreferenced.
 **Required correction:** Persist the primary source with role `primary` and
 any additional sources with their appropriate roles.
 
-### FINDING-06 — Ingestion is arrival-order FIFO, not timestamp-order FIFO
+### FINDING-06 — Ingestion is arrival-order FIFO, not timestamp-order FIFO — Resolved
 
 **Severity:** High  
 **Location:** `src/ingestion/message-ingestor.ts`
@@ -119,7 +119,7 @@ The normalizer sorts only within an individual upsert batch.
 **Required correction:** Add a bounded timestamp-aware ingress buffer or
 explicitly sort the pending queue before processing.
 
-### FINDING-07 — Graceful shutdown does not await in-flight dispatch
+### FINDING-07 — Graceful shutdown does not await in-flight dispatch — Resolved
 
 **Severity:** High  
 **Location:** `src/app.ts`
@@ -131,7 +131,7 @@ state, or wait for in-flight sends up to a configured timeout.
 **Required correction:** Track dispatch work, stop new claims, await active work
 with a bounded timeout, then disconnect and checkpoint SQLite.
 
-### FINDING-08 — Retention exists but is never scheduled
+### FINDING-08 — Retention exists but is never scheduled — Resolved
 
 **Severity:** Medium/High  
 **Locations:** `src/observability/health.ts`, `src/app.ts`
@@ -143,7 +143,7 @@ in production.
 **Required correction:** Add a scheduled retention task with explicit logging
 and shutdown cleanup.
 
-### FINDING-09 — Live adapter ingestion errors are not surfaced
+### FINDING-09 — Live adapter ingestion errors are not surfaced — Resolved
 
 **Severity:** High  
 **Location:** `src/whatsapp/baileys-client.ts`
@@ -155,7 +155,7 @@ or structured error log.
 **Required correction:** Catch and classify errors at the adapter event
 boundary, emit safe diagnostics, and preserve the connection lifecycle.
 
-### FINDING-10 — Bot JID is captured before Baileys connects
+### FINDING-10 — Bot JID is captured before Baileys connects — Resolved
 
 **Severity:** Medium  
 **Locations:** `src/app.ts`, `src/ingestion/message-ingestor.ts`
@@ -169,21 +169,17 @@ ingestor use a dynamic bot-JID provider.
 
 ## 4. Test-Evidence Limitations
 
-The E2E test is useful but primarily proves the normal synthetic path. It does
-not currently prove:
+The A–E regression suite now covers the synthetic negative and lifecycle paths.
+The following operational behaviors remain outside the local deterministic
+verification scope:
 
 - real Gemini behavior;
-- AI provider failure through the composition root;
-- durable held-validation persistence;
-- out-of-order event batches;
-- shutdown during an active send;
 - Baileys reconnect and logout handling;
 - live media-download failure handling;
-- complete CP01–CP09 presence in one final journey summary;
 - real Community topology and permission verification.
 
-The reported `60/60` result is accurate, but it does not establish full Phase 6
-release readiness.
+Real Gemini behavior and physical Baileys/SIM operation remain release-gate
+checks for their respective authorized environments.
 
 ## 5. Checkpoint Compliance Assessment
 
@@ -219,7 +215,8 @@ benchmark until the trace context is unified.
 
 ## 7. Conclusion
 
-Phase 6 is **conditionally passing for synthetic integration only**. The
-implementation reflects the intended architecture at a high level, but its
-current lifecycle, error persistence, FIFO, and telemetry details do not yet
-fully represent the approved plan.
+Phase 6.1 remediation is **complete for the deterministic local pipeline**:
+all ten findings are marked resolved, the negative-path E2E suite passes, and
+the file-backed simulation runs in mock mode. Real Gemini semantic validation,
+Baileys reconnect/media-failure behavior, Community permissions, and physical
+SIM/systemd operation remain explicitly deferred operational checks.
