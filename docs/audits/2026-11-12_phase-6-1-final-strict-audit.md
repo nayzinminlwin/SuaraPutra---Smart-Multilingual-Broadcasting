@@ -1,9 +1,9 @@
 # Phase 6.1 Final Strict Audit
 
-**Date:** 2026-11-12  
-**Audited commit:** `17b9f101c0a37d868b6dadd188090cf13c7867bc`  
+**Date:** 2026-11-12
+**Audited commit:** `17b9f101c0a37d868b6dadd188090cf13c7867bc`
 **Scope:** Partitions A-E, remediation findings 01-10, and the 95% live
-simulation path  
+simulation path
 **Verdict:** **Conditionally Passed — not ready to claim full 95% live
 readiness**
 
@@ -50,7 +50,7 @@ The mock simulation generated four language group files, 28 outbound entries,
 
 ### STRICT-01 — Real Gemini simulation not executed
 
-**Severity:** Release blocker for the 95% readiness claim  
+**Severity:** Release blocker for the 95% readiness claim
 **Status:** Open
 
 All simulation verification used `AI_PROVIDER=mock`. There is no evidence for
@@ -63,7 +63,7 @@ hashes, and telemetry.
 
 ### STRICT-02 — Interrupted AI recovery is not wired
 
-**Severity:** High  
+**Severity:** High
 **Status:** Open
 
 [`AnnouncementRepository.findInterrupted()`](../src/database/repositories/announcement.repo.ts)
@@ -79,7 +79,7 @@ AI processing records and test restart recovery.
 
 ### STRICT-03 — Announcement terminal status is not maintained
 
-**Severity:** Medium/High  
+**Severity:** Medium/High
 **Status:** Open
 
 Announcements transition to `queued`, but delivery does not update them to
@@ -95,7 +95,7 @@ states and add tests for all-sent, partial-failure, and uncertain outcomes.
 
 ### STRICT-04 — Baileys error-boundary behavior lacks direct tests
 
-**Severity:** Medium  
+**Severity:** Medium
 **Status:** Open
 
 [`BaileysWhatsAppAdapter`](../src/whatsapp/baileys-client.ts) contains
@@ -108,7 +108,7 @@ verify safe logging plus continued batch processing.
 
 ### STRICT-05 — Default simulation does not exercise ignored classification
 
-**Severity:** Medium  
+**Severity:** Medium
 **Status:** Open
 
 The default mock provider assigns high scores to ordinary text. The simulation
