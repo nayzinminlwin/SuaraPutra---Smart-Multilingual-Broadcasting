@@ -119,5 +119,5 @@ git diff --check
 
 ## 9. Commit and Documentation
 
-**Commit:** Not committed
+**Commit:** `9fb71a4` (`fix(phase-6.1): harden application lifecycle`)
 **Related documentation:** This log and the Phase 6.1 remediation plan.

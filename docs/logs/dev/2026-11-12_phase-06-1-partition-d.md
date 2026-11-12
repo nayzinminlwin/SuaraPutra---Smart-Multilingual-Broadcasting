@@ -89,7 +89,7 @@ git diff --check
   `groups/ms.json`, `en.json`, `zh-CN.json`, `ta.json`, per-language media,
   `broadcast-log.json`, `simulation.sqlite`, and `simulation-report.json`.
 - No Gemini API call was made during verification.
-- Full build and regression suite remain required before commit.
+- All required local verification completed before commit.
 
 ## 6. Risks and Follow-up
 
