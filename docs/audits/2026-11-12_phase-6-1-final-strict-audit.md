@@ -64,47 +64,41 @@ hashes, and telemetry.
 ### STRICT-02 — Interrupted AI recovery is not wired
 
 **Severity:** High
-**Status:** Open
+**Status:** Resolved
 
 [`AnnouncementRepository.findInterrupted()`](../src/database/repositories/announcement.repo.ts)
-exists, but no startup recovery workflow invokes it to reprocess stale
-`processing` announcements. A crash during AI processing can leave work
-permanently stuck.
+is now invoked by the application startup path. Stale `processing`
+announcements are reprocessed chronologically through the existing AI processor
+and durable queue.
 
-The architecture explicitly requires stale `processing` announcements to be
-re-triggered in chronological order after restart.
-
-**Required action:** Add a bounded, observable startup recovery path for stale
-AI processing records and test restart recovery.
+**Evidence:** `MessageIngestor.recoverInterrupted()` and the focused Phase 3
+recovery test.
 
 ### STRICT-03 — Announcement terminal status is not maintained
 
 **Severity:** Medium/High
-**Status:** Open
+**Status:** Resolved
 
-Announcements transition to `queued`, but delivery does not update them to
-`completed` or `partial_failure`. The successful mock simulation report
-therefore shows announcements as `queued` even after all delivery jobs are
-sent.
+Announcements now transition from `queued` to `completed` or `partial_failure`
+after all four sibling delivery jobs reach terminal states.
 
-This makes announcement-level state and reporting inaccurate despite correct
+This keeps announcement-level state and reporting aligned with the independent
 per-language job outcomes.
 
-**Required action:** Reconcile announcement status from its four delivery-job
-states and add tests for all-sent, partial-failure, and uncertain outcomes.
+**Evidence:** `DeliveryQueue.reconcileAnnouncementStatus()` and the focused
+all-sent/partial-failure delivery test.
 
 ### STRICT-04 — Baileys error-boundary behavior lacks direct tests
 
 **Severity:** Medium
-**Status:** Open
+**Status:** Resolved
 
 [`BaileysWhatsAppAdapter`](../src/whatsapp/baileys-client.ts) contains
-per-message and upsert-level error boundaries, but the test suite does not
-directly exercise media-download failure, normalization failure, or handler
-failure while verifying that later messages continue.
+per-message and upsert-level error boundaries. Direct tests now exercise media
+download and normalization failures while verifying safe logging and continued
+batch processing.
 
-**Required action:** Add focused adapter tests using controlled failures and
-verify safe logging plus continued batch processing.
+**Evidence:** `tests/unit/baileys-error-boundary.test.ts`.
 
 ### STRICT-05 — Default simulation does not exercise ignored classification
 

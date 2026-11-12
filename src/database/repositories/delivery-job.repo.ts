@@ -67,6 +67,13 @@ export class DeliveryJobRepository {
     return row ? map(row) : null;
   }
 
+  listForAnnouncement(announcementId: string): DeliveryJob[] {
+    const rows = this.client.prepare(
+      'SELECT * FROM delivery_jobs WHERE announcement_id = ? ORDER BY language_order ASC'
+    ).all(announcementId) as DeliveryRow[];
+    return rows.map(map);
+  }
+
   pollNext(): DeliveryJob | null {
     const row = this.client.prepare(`
       SELECT candidate.* FROM delivery_jobs AS candidate

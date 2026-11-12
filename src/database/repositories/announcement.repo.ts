@@ -91,11 +91,13 @@ export class AnnouncementRepository {
     if (result.changes !== 1) throw new Error(`Announcement not found: ${id}`);
   }
 
-  findInterrupted(): Announcement[] {
+  findInterrupted(olderThanIso?: string): Announcement[] {
     const rows = this.client.prepare(`
-      SELECT * FROM announcements WHERE status = 'processing'
+      SELECT * FROM announcements
+      WHERE status = 'processing'
+        AND (? IS NULL OR updated_at < ?)
       ORDER BY source_timestamp_ms ASC, announcement_seq ASC
-    `).all() as AnnouncementRow[];
+    `).all(olderThanIso ?? null, olderThanIso ?? null) as AnnouncementRow[];
     return rows.map(map);
   }
 }

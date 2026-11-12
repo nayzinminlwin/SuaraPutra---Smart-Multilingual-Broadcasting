@@ -23,6 +23,9 @@ export interface BaileysWhatsAppAdapterOptions {
   sendTimeoutMs?: number;
   sleep?: (milliseconds: number) => Promise<void>;
   random?: () => number;
+  downloadMedia?: typeof downloadMediaMessage;
+  normalizeMessageContent?: typeof normalizeMessageContent;
+  logger?: Pick<ReturnType<typeof createLogger>, 'error' | 'warn' | 'fatal'>;
 }
 
 export class BaileysWhatsAppAdapter implements IWhatsAppAdapter {
@@ -40,9 +43,9 @@ export class BaileysWhatsAppAdapter implements IWhatsAppAdapter {
 
   constructor(
     private readonly config: Pick<EnvConfig, 'WHATSAPP_AUTH_DIR' | 'MAX_MEDIA_BYTES' | 'LOG_LEVEL' | 'NODE_ENV'>,
-    options: BaileysWhatsAppAdapterOptions = {}
+    private readonly options: BaileysWhatsAppAdapterOptions = {}
   ) {
-    this.logger = createLogger(config);
+    this.logger = options.logger ?? createLogger(config);
     this.sendTimeoutMs = options.sendTimeoutMs ?? 30_000;
     this.sleep = options.sleep ?? ((milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds)));
     this.random = options.random ?? Math.random;
@@ -124,16 +127,16 @@ export class BaileysWhatsAppAdapter implements IWhatsAppAdapter {
     this.setStatus('connecting');
   }
 
-  private async handleUpsert(socket: WASocket, upsert: { messages: WAMessage[]; type: string }): Promise<void> {
+  protected async handleUpsert(socket: WASocket, upsert: { messages: WAMessage[]; type: string }): Promise<void> {
     if (upsert.type !== 'notify') return;
     for (const message of upsert.messages) {
       try {
         if (!message.key.remoteJid || !isJidGroup(message.key.remoteJid) || message.key.fromMe || !message.message) continue;
-        const content = normalizeMessageContent(message.message);
+        const content = (this.options.normalizeMessageContent ?? normalizeMessageContent)(message.message);
         const image = content?.imageMessage;
         const buffers: Record<string, Buffer> = {};
         if (image && message.key.id) {
-          buffers[message.key.id] = await downloadMediaMessage(
+          buffers[message.key.id] = await (this.options.downloadMedia ?? downloadMediaMessage)(
             message, 'buffer', {}, { logger: socket.logger, reuploadRequest: socket.updateMediaMessage }
           );
         }
