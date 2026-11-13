@@ -385,8 +385,11 @@ When translating raw Baileys `messages.upsert` payloads into `NormalizedInboundM
 
 ### 3.4 `BaileysWhatsAppAdapter` Specification (`src/whatsapp/baileys-client.ts`)
 When `WHATSAPP_ADAPTER_MODE=baileys` is enabled:
-- Uses `useMultiFileAuthState(env.WHATSAPP_AUTH_DIR)` to persist linked-device cryptographic keys (`@whiskeysockets/baileys` `6.7.22`).
+- Uses `useMultiFileAuthState(env.WHATSAPP_AUTH_DIR)` to persist linked-device cryptographic keys (`@whiskeysockets/baileys` `7.0.0-rc14`).
 - Configures `makeWASocket({ auth: state, printQRInTerminal: false, markOnlineOnConnect: false, syncFullHistory: false })`.
+- Matches both phone-number and LID identities, including normalized `participantAlt` and `remoteJidAlt` values for self-echo prevention.
+- In `announce === true` groups, permits sending only when the matched bot participant is an admin or superadmin.
+- Records `acknowledgedAtIso` when `sendMessage()` resolves (provider request acceptance), not as a client-emitted delivery ACK.
 - Listens to `creds.update` to save credentials atomically.
 - Listens to `connection.update`:
   - When `connection === 'close'`, checks `statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode`.

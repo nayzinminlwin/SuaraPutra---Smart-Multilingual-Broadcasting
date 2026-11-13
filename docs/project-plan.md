@@ -529,6 +529,7 @@ Wire all layers together in the application composition root (`src/app.ts`) and 
 | **Phase 4** | Single-Call Gemini 3.8 Flash Engine, Retry & URL Validator | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-04-*`, `test/YYYY-MM-DD_phase-04-*` | `feat(phase-04/ai-engine):` | `CP05`–`CP06` + Nullable JSON (`score < 4.0` vs $\ge 4.0$) + bilingual separation + retry debug logs + URL check pass |
 | **Phase 5** | Persistent Destination-Aware FIFO Queue, Single-Read Cache & Dispatcher | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-05-*`, `test/YYYY-MM-DD_phase-05-*` | `feat(phase-05/delivery):` | `CP07`–`CP09` + destination-aware FIFO dispatch + single-read media cache + `uncertain` timeout lock + crash recovery pass |
 | **Phase 6** | E2E Composition, Full 11-Fixture QA & Live Baileys Cutover | `developer.agent` + `tester.agent` | `dev/YYYY-MM-DD_phase-06-*`, `test/YYYY-MM-DD_phase-06-*` | `feat(phase-06/e2e-baileys):` | All 11 E2E scenarios + `CP01`–`CP09` telemetry benchmark pass; ready for live SIM cutover on GCP `e2-micro` |
+| **Phase 6.2** | Baileys `7.0.0-rc14` Migration | `developer.agent` + `tester.agent` | `dev/2026-11-13_phase-06-2-baileys-v7-migration.md`, `test/2026-11-13_phase-06-2-baileys-v7-migration-test.md` | `feat(phase-06.2/baileys-v7):` | Exact rc14 pin, PN/LID identity matching, admin-aware announcement permissions, focused v7 tests, synthetic regression, and bounded QR boot smoke pass |
 
 ---
 

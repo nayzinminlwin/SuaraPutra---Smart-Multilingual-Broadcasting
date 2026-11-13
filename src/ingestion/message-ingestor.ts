@@ -6,6 +6,7 @@ import { AnnouncementRepository } from '../database/repositories/announcement.re
 import { DeliveryJobRepository } from '../database/repositories/delivery-job.repo.js';
 import { SourceMessageRepository } from '../database/repositories/source-message.repo.js';
 import { TranslationRepository } from '../database/repositories/translation.repo.js';
+import { isSameWhatsAppIdentity } from '../whatsapp/adapter.js';
 import type { IWhatsAppAdapter, NormalizedInboundMessage, SupportedMessageKind } from '../whatsapp/adapter.js';
 import { PipelineTracer } from '../observability/telemetry.js';
 import { ContextAssembler, type AssembledContext } from './context-assembler.js';
@@ -29,7 +30,7 @@ export type IngestionResult = Readonly<{
 export interface MessageIngestorOptions {
   sourceGroupJid: string;
   botJid?: string | null;
-  botJidProvider?: string | null | (() => string | null);
+  botJidProvider?: string | string[] | null | (() => string | string[] | null);
   contextMaxMessages: number;
   contextWindowSeconds: number;
   destinationGroups: Readonly<Record<LanguageCode, string>>;
@@ -224,10 +225,14 @@ export class MessageIngestor {
       tracer.endCheckpoint('CP03_GATE_CHECKS', { rejectedGate: 1 });
       return { accepted: false, reason: 'out_of_scope', message };
     }
-    const botJid = typeof this.options.botJidProvider === 'function'
+    const botIdentitiesValue = typeof this.options.botJidProvider === 'function'
       ? this.options.botJidProvider()
       : this.options.botJidProvider ?? this.options.botJid ?? null;
-    if (!gate(!message.fromMe && message.senderJid !== (botJid ?? ''), 'GATE_2_SELF_ECHO')) {
+    const botIdentities = Array.isArray(botIdentitiesValue) ? botIdentitiesValue : [botIdentitiesValue];
+    if (!gate(
+      !message.fromMe && !isSameWhatsAppIdentity([message.senderJid, message.senderAltJid], botIdentities),
+      'GATE_2_SELF_ECHO'
+    )) {
       tracer.endCheckpoint('CP03_GATE_CHECKS', { rejectedGate: 2 });
       return { accepted: false, reason: 'self_echo', message };
     }

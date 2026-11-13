@@ -18,6 +18,7 @@ import type {
   ConnectionChangeHandler, ConnectionStatus, GroupMetadataSummary, IWhatsAppAdapter,
   InboundMessageHandler, NormalizedInboundMessage, OutboundMessagePayload, SendMessageResult
 } from './adapter.js';
+import { normalizeUserJid } from './adapter.js';
 import { normalizeUpsert } from './event-normalizer.js';
 import { summarizeGroupMetadata } from './group-metadata.js';
 
@@ -69,7 +70,14 @@ export class BaileysWhatsAppAdapter implements IWhatsAppAdapter {
   }
 
   getConnectionStatus(): ConnectionStatus { return this.status; }
-  getBotJid(): string | null { return this.socket?.user?.id ?? null; }
+  getBotJid(): string | null {
+    return normalizeUserJid(this.socket?.user?.id ?? this.socket?.user?.lid);
+  }
+  getBotIdentities(): string[] {
+    return [this.socket?.user?.id, this.socket?.user?.lid]
+      .map(normalizeUserJid)
+      .filter((jid): jid is string => jid !== null);
+  }
   onMessage(handler: InboundMessageHandler): void { this.messageHandlers.push(handler); }
   onConnectionChange(handler: ConnectionChangeHandler): void { this.connectionHandlers.push(handler); }
 
@@ -102,7 +110,7 @@ export class BaileysWhatsAppAdapter implements IWhatsAppAdapter {
     if (!isJidGroup(groupJid)) throw new WhatsAppInvalidInputError(`Invalid group JID: ${groupJid}`);
     if (!this.socket || this.status !== 'open') throw new WhatsAppTransientError('WhatsApp socket is not open');
     try {
-      return summarizeGroupMetadata(await this.socket.groupMetadata(groupJid), this.getBotJid());
+      return summarizeGroupMetadata(await this.socket.groupMetadata(groupJid), this.getBotIdentities());
     } catch (error) {
       throw new WhatsAppTransientError('Unable to retrieve WhatsApp group metadata', { cause: error });
     }

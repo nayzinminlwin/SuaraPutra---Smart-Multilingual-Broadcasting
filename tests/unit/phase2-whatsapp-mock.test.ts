@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { WhatsAppAmbiguousTimeoutError, WhatsAppInvalidInputError, WhatsAppPermanentError, WhatsAppTransientError } from '../../src/whatsapp/errors.js';
 import { MockWhatsAppAdapter } from '../../src/whatsapp/mock-adapter.js';
 import { normalizeUpsert } from '../../src/whatsapp/event-normalizer.js';
+import { summarizeGroupMetadata } from '../../src/whatsapp/group-metadata.js';
+import type { GroupMetadata } from '@whiskeysockets/baileys';
 
 const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(join(process.cwd(), 'tests', 'fixtures', 'baileys-events', name), 'utf8'));
@@ -49,6 +51,51 @@ describe('Phase 2 WhatsApp transport and mock adapter', () => {
     }, {}, { maxMediaBytes: 1024 })[0];
     expect(result.kind).toBe('UNSUPPORTED');
     expect(result.text).toBeNull();
+  });
+
+  it('normalizes LID sender identities and safely serializes binary payloads', () => {
+    const raw = {
+      type: 'notify',
+      messages: [{
+        key: {
+          remoteJid: '120000000001@g.us',
+          participant: '1029384756:3@lid',
+          participantAlt: '60123456789:0@s.whatsapp.net',
+          id: 'v7-identities'
+        },
+        messageTimestamp: 1794228000,
+        message: { conversation: 'LID announcement' },
+        binary: Buffer.from([1, 2, 3])
+      }]
+    };
+
+    const [message] = normalizeUpsert(raw, {}, { maxMediaBytes: 1024 });
+    expect(message).toMatchObject({
+      senderJid: '1029384756@lid',
+      senderAltJid: '60123456789@s.whatsapp.net'
+    });
+    expect(JSON.parse(message.rawPayloadJson).binary).toEqual({ type: 'Buffer', data: 'AQID' });
+  });
+
+  it('applies announcement-group admin permissions across LID and phone identities', () => {
+    const base: GroupMetadata = {
+      id: '120000000001@g.us',
+      subject: 'Synthetic group',
+      owner: undefined,
+      participants: [{ id: '5544332211@lid', admin: null }]
+    };
+    expect(summarizeGroupMetadata({ ...base, announce: false }, '5544332211@lid'))
+      .toMatchObject({ botIsParticipant: true, botCanSend: true });
+    expect(summarizeGroupMetadata({ ...base, announce: true }, '5544332211:2@lid'))
+      .toMatchObject({ botIsParticipant: true, botCanSend: false });
+    expect(summarizeGroupMetadata({
+      ...base,
+      announce: true,
+      participants: [{ id: '60123456789@lid', phoneNumber: '60199999999@s.whatsapp.net', admin: 'admin' }]
+    }, '60199999999:1@s.whatsapp.net')).toMatchObject({
+      botIsParticipant: true,
+      botCanSend: true
+    });
   });
 
   it('emits CP01-style timing through the normalizer caller boundary without changing normalized data', () => {

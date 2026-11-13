@@ -1,7 +1,18 @@
 import { access, constants, mkdir, stat } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import process from 'node:process';
+import { BufferJSON } from '@whiskeysockets/baileys';
 import Database from 'better-sqlite3';
 import { PIPELINE_CHECKPOINTS, PipelineTracer } from '../src/observability/telemetry.js';
+
+const require = createRequire(import.meta.url);
+const EXPECTED_BAILEYS_VERSION = '7.0.0-rc14';
+
+function readPackageVersion(metadata: unknown): string | undefined {
+  if (typeof metadata !== 'object' || metadata === null || !('version' in metadata)) return undefined;
+  const version = metadata.version;
+  return typeof version === 'string' ? version : undefined;
+}
 
 async function checkDirectory(path: string): Promise<string> {
   try {
@@ -25,6 +36,13 @@ async function main(): Promise<void> {
   if (journalMode !== 'memory') {
     throw new Error(`better-sqlite3 loaded, but in-memory journal mode was unexpected: ${journalMode}`);
   }
+  const baileysVersion = readPackageVersion(require('@whiskeysockets/baileys/package.json'));
+  if (baileysVersion !== EXPECTED_BAILEYS_VERSION) {
+    throw new Error(`Expected @whiskeysockets/baileys ${EXPECTED_BAILEYS_VERSION}; found ${baileysVersion ?? 'unknown'}`);
+  }
+  if (typeof BufferJSON.replacer !== 'function') {
+    throw new Error('@whiskeysockets/baileys BufferJSON.replacer is unavailable');
+  }
   const directories = await Promise.all([
     checkDirectory('./data'),
     checkDirectory('./data/media'),
@@ -43,6 +61,8 @@ async function main(): Promise<void> {
   tracer.finalizeJourney(Date.now());
   console.log(`Node.js ${process.versions.node}`);
   console.log('better-sqlite3: loaded');
+  console.log(`@whiskeysockets/baileys: ${baileysVersion}`);
+  console.log('Baileys BufferJSON.replacer: loaded');
   console.log(directories.join('\n'));
 }
 

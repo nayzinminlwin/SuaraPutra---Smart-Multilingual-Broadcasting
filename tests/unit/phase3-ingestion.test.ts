@@ -39,7 +39,7 @@ describe('Phase 3 ingestion pipeline', () => {
 
   function createIngestor(
     aiProcessor?: AiProcessor,
-    botJidProvider?: () => string | null
+    botJidProvider?: () => string | string[] | null
   ) {
     const directory = mkdtempSync(join(tmpdir(), 'suaraputra-phase3-'));
     const client = new DatabaseClient(join(directory, 'test.sqlite'));
@@ -107,6 +107,23 @@ describe('Phase 3 ingestion pipeline', () => {
 
     currentBotJid = '60100000002@s.whatsapp.net';
     expect((await ingestor.enqueue({ ...message, messageId: 'after-connect' })).accepted).toBe(true);
+  });
+
+  it('filters self-echoes through all configured phone and LID identities', async () => {
+    const { ingestor } = createIngestor(undefined, () => [
+      '60199999999@s.whatsapp.net',
+      '5544332211@lid'
+    ]);
+
+    expect((await ingestor.enqueue({
+      ...textMessage('lid-self-echo'),
+      senderJid: '5544332211:2@lid'
+    })).reason).toBe('self_echo');
+    expect((await ingestor.enqueue({
+      ...textMessage('phone-alt-self-echo'),
+      senderJid: '60100000001@s.whatsapp.net',
+      senderAltJid: '60199999999:1@s.whatsapp.net'
+    })).reason).toBe('self_echo');
   });
 
   it('uses the architecture-defined content hash formulas', async () => {
