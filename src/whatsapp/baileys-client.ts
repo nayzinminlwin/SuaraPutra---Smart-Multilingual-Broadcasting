@@ -1,7 +1,9 @@
 import { Boom } from '@hapi/boom';
+import qrcode from 'qrcode-terminal';
 import {
   DisconnectReason,
   downloadMediaMessage,
+  fetchLatestWaWebVersion,
   isJidGroup,
   makeWASocket,
   normalizeMessageContent,
@@ -108,22 +110,30 @@ export class BaileysWhatsAppAdapter implements IWhatsAppAdapter {
 
   private async openSocket(): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState(this.config.WHATSAPP_AUTH_DIR);
+    const waWebVersion = await fetchLatestWaWebVersion({});
+    if (!waWebVersion.isLatest) {
+      this.logger.warn({ error: waWebVersion.error }, 'Unable to fetch the latest WhatsApp Web version; using Baileys fallback');
+    }
     const socket = makeWASocket({
       auth: state,
-      printQRInTerminal: false,
+      version: waWebVersion.version,
       markOnlineOnConnect: false,
       syncFullHistory: false
     });
     this.socket = socket;
     socket.ev.on('creds.update', saveCreds);
     socket.ev.on('messages.upsert', (upsert) => {
+      if (this.status !== 'open') return;
       void this.handleUpsert(socket, upsert).catch(error => {
         this.logger.error({
           errorCode: error instanceof Error ? error.name : 'WHATSAPP_UPSERT_ERROR'
         }, 'WhatsApp upsert handling failed');
       });
     });
-    socket.ev.on('connection.update', (update) => { void this.handleConnectionUpdate(update); });
+    socket.ev.on('connection.update', (update) => {
+      if (update.qr) qrcode.generate(update.qr, { small: true });
+      void this.handleConnectionUpdate(update);
+    });
     this.setStatus('connecting');
   }
 
