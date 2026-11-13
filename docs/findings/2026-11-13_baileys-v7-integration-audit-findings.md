@@ -1,9 +1,9 @@
 # Baileys v7 Integration and Complementary Testing Audit
 
-**Date:** 2026-11-13  
-**Status:** Conditional readiness; controlled live validation remains required  
+**Date:** 2026-11-13
+**Status:** Conditional readiness; controlled live validation remains required
 **Scope:** Baileys `7.0.0-rc14` integration with ingestion, AI handoff,
-SQLite persistence, delivery queue, retry/recovery, and mock transport  
+SQLite persistence, delivery queue, retry/recovery, and mock transport
 **Related plan:** [`baileys_v7_0_0_rc14_migration_plan.md`](../baileys_v7_0_0_rc14_migration_plan.md)
 
 ## 1. Executive finding
