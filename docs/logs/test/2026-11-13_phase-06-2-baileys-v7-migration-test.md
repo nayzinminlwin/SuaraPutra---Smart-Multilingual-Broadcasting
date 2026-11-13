@@ -3,8 +3,8 @@
 **Date:** 2026-11-13
 **Tester:** Tester agent execution
 **Environment:** Windows, Node.js 22.23.3, TypeScript/NodeNext, SQLite, Baileys `7.0.0-rc14`
-**Build or commit under test:** Working tree before Phase 6.2 commit
-**Status:** PASSED
+**Build or commit under test:** `ed8e533` plus documented retest
+**Status:** CONDITIONALLY PASSED
 
 ## 1. Scope
 
@@ -57,9 +57,12 @@ npm run simulate:live
 
 **Results:**
 
-- **Passed:** Baileys `7.0.0-rc14`; environment verifier; 8 test files and
-  79 tests; typecheck; build; synthetic simulation.
-- **Failed:** None.
+- **Passed:** Baileys `7.0.0-rc14`; environment verifier; typecheck; build;
+  synthetic simulation; isolated E2E suite (6/6); full-suite retest (8 files,
+  79 tests).
+- **Failed:** The first post-commit full-suite audit run had 78/79 tests pass;
+  the E2E fixture test timed out at 5 seconds alongside transient SQLite
+  delivery-persistence errors.
 - **Skipped / blocked:** Physical SIM pairing and live group send, as
   authorized by the migration plan.
 - **Coverage:** Existing repository unit and integration coverage plus focused
@@ -67,19 +70,39 @@ npm run simulate:live
 
 ## 4. Issues Found
 
-None.
+### [QA-01] Intermittent full-suite E2E timeout
+
+- **Severity:** Low
+- **Category:** Reliability / Test infrastructure
+- **Location:** `tests/integration/e2e-pipeline.test.ts` execution under the
+  full Vitest suite
+
+**Expected:**
+
+The full suite completes without timing out.
+
+**Actual:**
+
+One full-suite run timed out during the 11-fixture E2E scenario. The isolated
+E2E file and a subsequent full-suite run both passed, so no deterministic
+Baileys migration defect was reproduced.
+
+**Required action:**
+
+Monitor test-run stability; no production fix is indicated by the retest.
 
 ## 5. Final Assessment
 
-**Status:** PASSED
+**Status:** CONDITIONALLY PASSED
 
 **Summary:** The implementation satisfies the Partition C verification and
 Partition D documentation/release-readiness requirements. The rc14 package
 loads correctly, focused PN/LID and permission cases pass, and the complete
 synthetic application pipeline remains regression-free.
 
-**Required action:** None for Phase 6.2. Physical pairing remains a future
-operational step.
+**Required action:** None for the migration implementation. Track QA-01 as a
+test-environment stability risk. Physical pairing remains a future operational
+step.
 
 **Remaining risks and limitations:**
 
@@ -87,3 +110,23 @@ operational step.
   not performed.
 - `npm install` reported four dependency audit findings; remediation is
   outside this migration scope.
+
+---
+
+# Retest History
+
+## Retest — 2026-11-13
+
+**Build or commit under test:** `ed8e533`
+**Status:** PASS with QA-01 noted
+
+**Issues retested:**
+
+- QA-01 — isolated E2E suite passed 6/6.
+- QA-01 — subsequent full suite passed 8 files / 79 tests.
+
+**New issues:** None.
+
+**Commands and evidence:** `npm test -- --run
+tests/integration/e2e-pipeline.test.ts` and a subsequent `npm test` both
+completed successfully.

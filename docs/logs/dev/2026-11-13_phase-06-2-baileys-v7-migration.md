@@ -109,8 +109,9 @@ npm run simulate:live
   an account or send messages.
 - `npm install` reported four dependency audit findings; remediation is
   outside this migration scope.
-- Tester must independently review the evidence and create the Phase 6.2 QA
-  report before the migration is considered complete.
+- The Tester QA report records the independent regression evidence.
+- Post-commit audit observed one intermittent full-suite E2E timeout; the
+  isolated E2E suite and subsequent full-suite retest passed.
 
 ## 8. Commit and Documentation
 
