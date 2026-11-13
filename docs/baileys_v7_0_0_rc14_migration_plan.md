@@ -1,181 +1,186 @@
 # SuaraPutra: Baileys v7.0.0-rc14 Assessment & Migration Plan (Phase 6.2)
 
 **Project Name:** SuaraPutra — Smart Multilingual Broadcasting  
-**Document Path:** `docs/phase-06-2-baileys-v7-migration-plan.md`  
-**Version:** 1.0.0  
+**Document Path:** `docs/baileys_v7_0_0_rc14_migration_plan.md`  
+**Version:** 1.1.0 (Revised per Pre-Execution Agent Review)  
 **Date:** 13 November 2026  
 **Baseline Package:** `@whiskeysockets/baileys` `6.7.22`  
 **Target Package:** `@whiskeysockets/baileys` `7.0.0-rc14` (Exact Pin)  
-**Input Reference:** [`docs/audits/2026-11-13_baileys-v7-upgrade-findings.md`](./audits/2026-11-13_baileys-v7-upgrade-findings.md)  
-**Status:** Approved for Execution Prior to Live SIM Pairing
+**Input References:**  
+* Upgrade Findings: [`docs/findings/2026-11-13_baileys-v7-upgrade-findings.md`](./findings/2026-11-13_baileys-v7-upgrade-findings.md)  
+* Architecture Source of Truth: [`docs/architecture.md`](./architecture.md)  
+* Master Execution Plan: [`docs/project-plan.md`](./project-plan.md)  
+**Status:** Approved for Execution
 
 ---
 
-## 1. Executive Verdict: Is It Worth Upgrading Now?
+## 1. Executive Summary & Pre-Execution Review Corrections
 
-**Verdict: YES — Upgrading to `7.0.0-rc14` right now (before pairing the physical SIM card and before starting the Phase 7 Multi-Faculty Admin Panel) is strongly recommended.**
+### 1.1 Why We Are Migrating to `7.0.0-rc14` Now
+1. **WhatsApp Communities Default to Linked Identity JIDs (`@lid`) (`V7-01`, `V7-04`):** WhatsApp Communities and large groups increasingly identify participants by `@lid` rather than phone-number JIDs (`@s.whatsapp.net`). Baileys `7.0.0-rc14` natively supports `lid-mapping` Signal sessions, `sock.user.lid`, and alternate identity fields (`participantAlt`, `remoteJidAlt`).
+2. **Anti-Ban Protection (`V7-03`):** Baileys v7 disables automatic client delivery ACK emission, reducing automated account restriction risk.
+3. **Zero Auth-State Migration Cost (`V7-02`):** Because no production WhatsApp session has been paired yet, upgrading now allows the very first physical SIM pairing to initialize a native v7 auth state in `./private/whatsapp-auth`.
 
-### 1.1 Why Upgrading Now Is High-Reward and Low-Risk
-
-1. **WhatsApp Communities Force `@lid` Addressing (`V7-01` & `V7-04`):**
-   * SuaraPutra is specifically designed to run inside **WhatsApp Communities**. WhatsApp now defaults to **Linked Identity JIDs (`@lid`)** instead of phone-number JIDs (`@s.whatsapp.net`) inside Communities and large groups to protect member phone privacy.
-   * On `6.7.22`, `@lid` Signal sessions frequently fail to decrypt incoming group messages (`No sessions` / `Bad MAC`) and break `group-metadata.ts` permission checks (`botIsParticipant` and `botCanSend` evaluate to `false` when the group lists participants by `@lid` while `6.7.22` only checks the bot's `@s.whatsapp.net` phone JID).
-   * `7.0.0-rc14` natively supports `lid-mapping` Signal sessions, `sock.user.lid`, and `participantAlt`.
-2. **Built-In Anti-Ban Protection (`V7-03`):**
-   * Baileys v7 removed automatic delivery ACKs specifically because WhatsApp's anti-abuse detection started flagging and banning linked devices that emit unofficial delivery receipts. Upgrading protects the faculty WhatsApp numbers from automated bans.
-   * Furthermore, SuaraPutra's `SendMessageResult.acknowledgedAtIso` contract only requires the timestamp when `sock.sendMessage()` resolves (server stanza acceptance), **not** end-user device delivery receipts. Thus, `V7-03` requires **zero database schema or state-machine changes**.
-3. **Zero Auth-State Migration Cost Today (`V7-02`):**
-   * Right now, you have **zero production auth states** on disk. If you stay on `6.7.22` today and upgrade to v7 later after onboarding 5 UPM faculties in the Admin Panel, every faculty would have to wipe their session and re-scan QR codes. Upgrading today means your very first live SIM pairing is natively v7.
-4. **ESM Prerequisites Are Already Met (`V7-05`):**
-   * Your repository already runs on Node.js $\ge 22$ with `"type": "module"` and `"moduleResolution": "NodeNext"`. The hardest part of a v6 $\rightarrow$ v7 migration (CommonJS-to-ESM conversion) is already done.
-5. **Strict Adapter Isolation Limits Code Changes to `src/whatsapp/`:**
-   * Because of Architectural Invariant #1 (`IWhatsAppAdapter`), **0 lines of code** in `database/`, `ingestion/`, `ai/`, `validation/`, `routing/`, or `delivery/` need to change. Only `package.json` and the files inside `src/whatsapp/` require updates.
+### 1.2 Corrections Incorporated from the Pre-Execution Review
+This v1.1.0 plan incorporates all 8 required corrections identified during pre-execution review:
+1. **Explicit Cross-Boundary Scope:** Explicitly includes `src/app.ts`, `src/whatsapp/adapter.ts`, `src/whatsapp/mock-adapter.ts`, `src/whatsapp/baileys-client.ts`, `src/whatsapp/event-normalizer.ts`, `src/whatsapp/group-metadata.ts`, and `src/ingestion/message-ingestor.ts` so multi-identity self-echo protection is wired end-to-end.
+2. **Group Admin Permission Behavior Fix (`group-metadata.ts`):** Fixes the existing permission logic where `announce: true` unconditionally set `botCanSend = false`. The updated logic enforces:
+   * `announce !== true` $\rightarrow$ any group participant (`botIsParticipant === true`) has `botCanSend = true`.
+   * `announce === true` $\rightarrow$ `botCanSend = true` **if and only if** the matched bot participant has `admin === 'admin'` or `admin === 'superadmin'`; non-admin participants have `botCanSend = false`.
+3. **Complete `getBotIdentities()` Integration:** Adds `getBotIdentities(): string[]` to `IWhatsAppAdapter`, implements it in both `BaileysWhatsAppAdapter` and `MockWhatsAppAdapter`, wires `() => adapter.getBotIdentities()` in `src/app.ts`, and updates `MessageIngestor` to accept `string | string[] | null | (() => string | string[] | null)`.
+4. **Historical Documentation Preservation:** Historical `6.7.22` references in Phase 0–6 sections of `docs/project-plan.md`, `docs/DECISIONS.md`, and `docs/logs/**` **must not** be overwritten. Only current-state specifications are updated, and an additive Phase 6.2 migration record is appended.
+5. **Separated Verification Tiers:** Distinguishes (1) mock/synthetic pipeline regression (`npm run simulate:live`), (2) focused Baileys v7 adapter/normalizer/metadata unit tests, and (3) live Baileys v7 socket/QR smoke testing with a fresh external auth directory.
+6. **Canonical Repository File Paths:** Uses the exact repository paths `docs/findings/2026-11-13_baileys-v7-upgrade-findings.md` and `docs/baileys_v7_0_0_rc14_migration_plan.md`. Leaves pre-existing untracked files (such as `docs/admin_panel_architecture_phased_execution_plan.md`) completely untouched.
+7. **Preserve `fetchLatestWaWebVersion()`:** Preserves the existing `fetchLatestWaWebVersion()` call in `src/whatsapp/baileys-client.ts` unless `7.0.0-rc14` compilation explicitly requires a signature adjustment.
+8. **Independent QA Log Ownership:** `developer.agent.md` authors the development log (`docs/logs/dev/...`) and any applicable fix log (`docs/logs/fixes/...`), while `tester.agent.md` independently executes the test suite and authors the QA test report (`docs/logs/test/...`).
 
 ---
 
-## 2. Resolution Strategy for Findings `V7-01` Through `V7-09`
+## 2. Resolution Matrix for Findings `V7-01` Through `V7-09`
 
 | Finding ID | Severity | Resolution Design in Phase 6.2 |
 | :--- | :--- | :--- |
-| **V7-01** | High | **Multi-Identity Bot Matching (`PN` + `LID`):** Add a JID canonicalizer (`normalizeIdentityJid`) that strips device suffixes (e.g., `60123456789:14@s.whatsapp.net` $\rightarrow$ `60123456789@s.whatsapp.net`, `99887766:2@lid` $\rightarrow$ `99887766@lid`). Update `BaileysWhatsAppAdapter` to expose both `sock.user?.id` (PN) and `sock.user?.lid` (LID) so self-echo checks and group permission checks match either identity. |
-| **V7-02** | Low | **Native v7 Multi-File Auth Store:** `useMultiFileAuthState` in `7.0.0-rc14` natively manages `lid-mapping`, `device-list`, and `tctoken`. Ensure `./private/whatsapp-auth` starts clean before live pairing. |
-| **V7-03** | High | **Clarify Server-Acceptance Semantics (Keep `acknowledgedAtIso` Property Name):** Keep `acknowledgedAtIso` on `SendMessageResult` so zero downstream repositories/tests break, and document in `src/whatsapp/adapter.ts` and `docs/BAILEYS_INTEGRATION_SPEC.md` that it records the UTC timestamp when `sock.sendMessage()` resolves (provider request acceptance), without implying client ACK emission. |
-| **V7-04** | Medium | **Alternate Identity Support (`participantAlt`):** In `event-normalizer.ts`, extract `senderJid` from `key.participant ?? key.participantAlt ?? key.remoteJid` (preferring the primary participant JID while checking `participantAlt` during bot self-echo detection). In `group-metadata.ts`, match group participants against the bot's PN and LID (checking participant `id`, `lid`, and `phoneNumber` / `participantAlt` fields if present). |
-| **V7-05** | Medium | **Direct ESM Named Import:** Keep standard ESM imports (`makeWASocket`, `DisconnectReason`, `useMultiFileAuthState`, `downloadMediaMessage`, `fetchLatestBaileysVersion`, `BufferJSON`) from `@whiskeysockets/baileys` and verify with `tsc --noEmit`. |
-| **V7-06** | Medium | **Exact Pin & Install Policy Update:** Pin `"@whiskeysockets/baileys": "7.0.0-rc14"` in `package.json`, update any version-specific `allowScripts` / build-script configuration in `package.json`, regenerate `package-lock.json`, and verify `whatsapp-rust-bridge` and `libsignal` load cleanly in `scripts/verify-environment.ts`. |
-| **V7-07** | Medium | **Safe Raw Payload Serialization (`BufferJSON.replacer`):** In `src/whatsapp/event-normalizer.ts`, serialize `rawPayloadJson` using `JSON.stringify(msg, BufferJSON.replacer)` so binary `Uint8Array` / `Buffer` fields inside v7 protobuf message wrappers serialize deterministically without data corruption. |
-| **V7-08** | Medium | **Preserve Phase 6 QR, Version & Pre-Open Gate:** Keep `qrcode-terminal` rendering, `fetchLatestBaileysVersion()` with graceful fallback, the pre-`open` upsert gate, bounded exponential backoff, and `DisconnectReason.loggedOut` halt in `src/whatsapp/baileys-client.ts`. |
-| **V7-09** | Low | **Exact Version Pinning:** Pin `"7.0.0-rc14"` without `^` or `~` ranges so automated installs never pull an untested RC. |
+| **V7-01** | High | **End-to-End Multi-Identity Matching (`PN` + `LID`):** Implement `normalizeUserJid()` (stripping `:device` suffixes while keeping `@s.whatsapp.net` or `@lid` domains) and `isSameWhatsAppIdentity()`. Expose `getBotIdentities(): string[]` on `IWhatsAppAdapter` and wire it through `src/app.ts` into `MessageIngestor` and `group-metadata.ts`. |
+| **V7-02** | Low | **Native v7 Multi-File Auth Store:** `useMultiFileAuthState` in `7.0.0-rc14` natively supports `lid-mapping`, `device-list`, and `tctoken`. Live testing will initialize a fresh `./private/whatsapp-auth` directory. |
+| **V7-03** | High | **Server-Acceptance Send Contract (No ACK Emulation):** Retain the `acknowledgedAtIso` field name on `SendMessageResult` for backward compatibility, and document in `src/whatsapp/adapter.ts` and `docs/BAILEYS_INTEGRATION_SPEC.md` that it represents the UTC timestamp when `sendMessage()` resolved (provider request acceptance), not a client-emitted delivery ACK. |
+| **V7-04** | Medium | **Alternate Identity Fields (`participantAlt`, `remoteJidAlt`):** In `event-normalizer.ts`, extract primary `senderJid` and optional `senderAltJid` (from `key.participantAlt` / `key.remoteJidAlt`). In `group-metadata.ts`, match bot identities against participant `id`, `lid`, and `phoneNumber` / `jid` fields. |
+| **V7-05** | Medium | **ESM Compile-First Check:** Upgrade dependency first and run `npm run typecheck` to verify `7.0.0-rc14` ESM exports against the existing `NodeNext` setup before altering runtime logic. |
+| **V7-06** | Medium | **Lockfile & Install Policy Update:** Pin `"@whiskeysockets/baileys": "7.0.0-rc14"` in `package.json`, update any version-pinned `allowScripts` entry if present, regenerate `package-lock.json`, and verify runtime import in `scripts/verify-environment.ts`. |
+| **V7-07** | Medium | **Safe Raw Payload Serialization (`BufferJSON.replacer`):** Use `JSON.stringify(rawMsg, BufferJSON.replacer)` in `src/whatsapp/event-normalizer.ts` so binary buffers inside v7 message objects serialize safely. |
+| **V7-08** | Medium | **Preserve `fetchLatestWaWebVersion()` & QR/Open Gating:** Keep `fetchLatestWaWebVersion()`, `qrcode-terminal` rendering, pre-`open` upsert gating, bounded reconnect backoff, and `DisconnectReason.loggedOut` halt in `src/whatsapp/baileys-client.ts`. |
+| **V7-09** | Low | **Exact Version Pin:** Pin `"7.0.0-rc14"` with no `^` or `~` range in `package.json`. |
 
 ---
 
 ## 3. Partitioned Execution Plan (Phase 6.2)
 
-Agents (`developer.agent.md` and `tester.agent.md`) must execute Phase 6.2 sequentially across **Partitions A through D**.
+Execute Phase 6.2 sequentially across **Partitions A through D**. Do not modify or stage any untracked files outside this scope (specifically leave `docs/admin_panel_architecture_phased_execution_plan.md` untouched).
 
 ---
 
-### Partition A — Dependency Upgrade, Lockfile & Environment Verification (`V7-05`, `V7-06`, `V7-09`)
+### Partition A — Dependency Upgrade, Lockfile Regeneration & Compile-First Check (`V7-05`, `V7-06`, `V7-08`, `V7-09`)
 
-* **Objective:** Upgrade `@whiskeysockets/baileys` to exact version `7.0.0-rc14`, update install script policies if present, regenerate `package-lock.json`, and verify that all transitive dependencies (`whatsapp-rust-bridge`, `libsignal`, `p-queue`) install and load cleanly.
+* **Owner:** `developer.agent.md`
 * **Files in Scope:**
   * `package.json`
   * `package-lock.json`
   * `scripts/verify-environment.ts`
+  * `src/whatsapp/baileys-client.ts` *(compile/type adjustment only if required by rc14)*
 * **Implementation Tasks:**
-  1. In `package.json`, change `"@whiskeysockets/baileys": "6.7.22"` to exact `"@whiskeysockets/baileys": "7.0.0-rc14"`.
-  2. If `package.json` contains a version-pinned script policy (e.g., `allowScripts` or `trustedDependencies`), update it to permit `7.0.0-rc14` and any required native/WASM bridge packages.
-  3. Run `npm install` to regenerate `package-lock.json`.
-  4. In `scripts/verify-environment.ts`, add a lightweight check confirming `@whiskeysockets/baileys` exports (`makeWASocket`, `BufferJSON`, `DisconnectReason`) load cleanly at runtime.
+  1. **Pin Exact Version:** In `package.json`, update `"@whiskeysockets/baileys"` from `"6.7.22"` to exact `"7.0.0-rc14"`.
+  2. **Install Script Policy Check:** Inspect `package.json` for any version-specific `allowScripts` or build-script allowlist entries and update them if needed for `7.0.0-rc14` and its transitive dependencies (`whatsapp-rust-bridge`, `libsignal`, `p-queue`).
+  3. **Regenerate Lockfile & Compile-Test First:**
+     * Run `npm install`.
+     * Run `npm run typecheck` immediately before making behavioral changes to inspect how `src/whatsapp/baileys-client.ts` (including `makeWASocket`, `fetchLatestWaWebVersion`, `downloadMediaMessage`, and `BufferJSON`) compiles against `7.0.0-rc14`.
+     * Preserve `fetchLatestWaWebVersion()` as-is unless `7.0.0-rc14` type definitions require an adjustment.
+  4. **Environment Verifier Update:** Update `scripts/verify-environment.ts` to verify that `@whiskeysockets/baileys` (`7.0.0-rc14`) and `BufferJSON` load cleanly.
 * **Verification Gate (Partition A):**
-  * Run `npm ls @whiskeysockets/baileys` and confirm `7.0.0-rc14` is installed.
-  * Run `npx tsx scripts/verify-environment.ts`.
+  * `npm ls @whiskeysockets/baileys` reports `7.0.0-rc14`.
+  * `npm run typecheck` and `npx tsx scripts/verify-environment.ts` pass.
 
 ---
 
-### Partition B — LID-Aware Identity Matching, Normalizer (`BufferJSON`) & Group Metadata (`V7-01`, `V7-04`, `V7-07`)
+### Partition B — End-to-End Multi-Identity Contract & Group Admin Permission Fix (`V7-01`, `V7-03`, `V7-04`, `V7-07`)
 
-* **Objective:** Upgrade identity matching, event normalization, and group permission inspection to handle WhatsApp v7 Linked Identity JIDs (`@lid`), device-suffixed JIDs (`:device@`), alternate participant fields (`participantAlt`), and `BufferJSON` serialization.
+* **Owner:** `developer.agent.md`
 * **Files in Scope:**
   * `src/whatsapp/adapter.ts`
+  * `src/whatsapp/mock-adapter.ts`
+  * `src/whatsapp/baileys-client.ts`
   * `src/whatsapp/event-normalizer.ts`
   * `src/whatsapp/group-metadata.ts`
   * `src/ingestion/message-ingestor.ts`
+  * `src/app.ts`
 * **Implementation Tasks:**
-  1. **JID Normalization & Multi-Identity Helper (`src/whatsapp/adapter.ts` or `src/whatsapp/group-metadata.ts`):**
-     * Implement `normalizeUserJid(jid: string | null | undefined): string | null`:
-       * Strips the `:device` suffix while preserving the domain (`"60123456789:12@s.whatsapp.net"` $\rightarrow$ `"60123456789@s.whatsapp.net"`, `"1029384756:4@lid"` $\rightarrow$ `"1029384756@lid"`).
-     * Implement `isSameWhatsAppIdentity(candidateJids: Array<string | null | undefined>, knownBotJids: Array<string | null | undefined>): boolean` which normalizes both sets and returns `true` if any non-null normalized JID intersects.
-  2. **Event Normalizer Updates (`src/whatsapp/event-normalizer.ts`):**
-     * Support `key.participantAlt` and `key.remoteJidAlt` on v7 `WAMessageKey`:
-       * Extract `senderJid` as `normalizeUserJid(key.participant ?? key.participantAlt ?? key.remoteJid) ?? ''`.
-       * Add an optional `senderAltJid?: string | null` (normalized `key.participantAlt` if distinct from `senderJid`) on `NormalizedInboundMessage` so Gate 2 can check both `msg.senderJid` and `msg.senderAltJid` against the bot's identities.
-     * Serialize `rawPayloadJson` using `JSON.stringify(rawMsg, BufferJSON.replacer)` (`V7-07`) so protobuf byte buffers never corrupt JSON output.
-  3. **Gate 2 Self-Echo Check (`src/ingestion/message-ingestor.ts`):**
-     * Allow `botJidProvider` to return `string | string[] | null` (containing both the bot's phone JID `sock.user?.id` and LID `sock.user?.lid`).
-     * In Gate 2, drop the message as a self-echo if `msg.fromMe === true` **OR** `isSameWhatsAppIdentity([msg.senderJid, msg.senderAltJid], botJids)` is `true`.
-  4. **LID-Aware Group Metadata Inspector (`src/whatsapp/group-metadata.ts`):**
-     * Update `inspectGroupMetadata(metadata, botJids: string | string[] | null)` so participant matching checks each group participant's `id`, `lid`, and `phoneNumber` (or `jid`) against all known bot identities (`sock.user?.id` and `sock.user?.lid`).
-     * Ensure `botIsParticipant` and `botCanSend` (checking `metadata.announce` vs. participant `admin === 'admin' | 'superadmin'`) work identically whether the group lists participants by `@s.whatsapp.net` or `@lid`.
+  1. **Transport Interface & Identity Helpers (`src/whatsapp/adapter.ts`):**
+     * Add `senderAltJid?: string | null` to `NormalizedInboundMessage` to hold a normalized alternate sender identity (`participantAlt` or `remoteJidAlt`) when present.
+     * Add `getBotIdentities(): string[]` to `IWhatsAppAdapter` (alongside `getBotJid(): string | null` for backward compatibility).
+     * Export helper functions `normalizeUserJid(jid: string | null | undefined): string | null` (which strips `:device` suffixes such as `:12` while preserving `@s.whatsapp.net` or `@lid`) and `isSameWhatsAppIdentity(candidates: Array<string | null | undefined>, botIdentities: Array<string | null | undefined>): boolean`.
+     * Update the JSDoc on `SendMessageResult.acknowledgedAtIso` to clarify that it records the UTC timestamp when `sendMessage()` resolved (provider request acceptance), not a client-emitted delivery ACK (`V7-03`).
+  2. **Adapter Implementations (`src/whatsapp/mock-adapter.ts` & `src/whatsapp/baileys-client.ts`):**
+     * In `MockWhatsAppAdapter`: Implement `getBotIdentities(): string[]` returning all configured mock bot JIDs (e.g., `[this.botJid]` plus any optional mock LID configured for testing).
+     * In `BaileysWhatsAppAdapter`: Implement `getBotIdentities(): string[]` returning all non-null normalized identities from `[this.sock?.user?.id, this.sock?.user?.lid]`. Keep `getBotJid()` returning the primary normalized identity (`normalizeUserJid(this.sock?.user?.id ?? this.sock?.user?.lid)`).
+  3. **Composition Root & Ingestor Wiring (`src/app.ts` & `src/ingestion/message-ingestor.ts`):**
+     * Update `MessageIngestor` constructor's `botJidProvider` type to accept:
+       ```typescript
+       string | string[] | null | (() => string | string[] | null)
+       ```
+     * In `src/app.ts`, wire `MessageIngestor` with `() => adapter.getBotIdentities()` (falling back to `adapter.getBotJid()` if needed).
+     * In `MessageIngestor` Gate 2 (Self-Echo / Loop Prevention), resolve the current bot identities array and reject the message as a self-echo if `msg.fromMe === true` **OR** `isSameWhatsAppIdentity([msg.senderJid, msg.senderAltJid], botIdentities)` is `true`.
+  4. **Event Normalizer Updates (`src/whatsapp/event-normalizer.ts`):**
+     * Extract `senderJid` using `normalizeUserJid(key.participant ?? key.participantAlt ?? key.remoteJid)`.
+     * Extract `senderAltJid` using `normalizeUserJid(key.participantAlt ?? key.remoteJidAlt)` when present and distinct from `senderJid`.
+     * Serialize `rawPayloadJson` using `JSON.stringify(rawMsg, BufferJSON.replacer)` (`V7-07`).
+  5. **Group Metadata Permission & LID Matching Fix (`src/whatsapp/group-metadata.ts`):**
+     * Accept `botIdentities: string | string[] | null` when inspecting `GroupMetadata`.
+     * Match the bot's participant entry by comparing `botIdentities` against each participant's `id`, `lid`, and `phoneNumber` / `jid` fields using `isSameWhatsAppIdentity`.
+     * Compute `botIsParticipant` and `botCanSend` with explicit announcement-group admin semantics:
+       * If `!botIsParticipant` $\rightarrow$ `botCanSend = false`.
+       * If `botIsParticipant && metadata.announce !== true` $\rightarrow$ `botCanSend = true`.
+       * If `botIsParticipant && metadata.announce === true` $\rightarrow$ `botCanSend = (matchedParticipant.admin === 'admin' || matchedParticipant.admin === 'superadmin')`.
 * **Verification Gate (Partition B):**
-  * Run `npm run typecheck`.
+  * `npm run typecheck` and `npm run build` pass with zero errors.
 
 ---
 
-### Partition C — `BaileysWhatsAppAdapter` v7 Socket, Media & Send Contract (`V7-02`, `V7-03`, `V7-08`)
+### Partition C — Focused Baileys v7 Unit Tests & Pipeline Regression (`tester.agent.md` + `developer.agent.md`)
 
-* **Objective:** Align `src/whatsapp/baileys-client.ts` with Baileys `7.0.0-rc14` types and socket behavior while preserving the Phase 6 QR rendering, dynamic web version lookup, pre-`open` message gate, and 30-second send timeout guard.
-* **Files in Scope:**
-  * `src/whatsapp/baileys-client.ts`
-  * `src/whatsapp/adapter.ts`
-* **Implementation Tasks:**
-  1. **Bot Identity Exposure (`getBotJid` & `getBotIdentities`):**
-     * In `BaileysWhatsAppAdapter`, keep `getBotJid(): string | null` returning the normalized primary JID (`normalizeUserJid(this.sock?.user?.id ?? this.sock?.user?.lid)`), and add `getBotIdentities(): string[]` returning all non-null normalized identities (`[this.sock?.user?.id, this.sock?.user?.lid]`) for `MessageIngestor` and `getGroupMetadata()`.
-  2. **Socket & Media Compatibility (`V7-08`):**
-     * Verify `useMultiFileAuthState(this.config.WHATSAPP_AUTH_DIR)` and `makeWASocket` compile cleanly with `7.0.0-rc14` types.
-     * Verify `downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: this.sock.updateMediaMessage })` matches `7.0.0-rc14` signature and types.
-     * Preserve `qrcode-terminal` rendering on `connection.update` (`qr`), the `status === 'open'` gate before emitting `messages.upsert`, bounded exponential reconnect backoff, and `DisconnectReason.loggedOut` halt.
-  3. **No-ACK Send Result Contract (`V7-03`):**
-     * In `src/whatsapp/adapter.ts`, update the JSDoc on `SendMessageResult.acknowledgedAtIso` to explicitly state:
-       > *"UTC timestamp when `sendMessage()` resolved and the transport provider accepted the outbound stanza (`result.key.id`). In Baileys v7, this reflects server stanza acceptance rather than client-emitted delivery ACK receipts."*
-* **Verification Gate (Partition C):**
-  * Run `npm run typecheck && npm run build`.
-
----
-
-### Partition D — v7 Regression Tests, Live Simulation & Documentation Sync
-
-* **Objective:** Prove all v7 behaviors (LID senders, `participantAlt`, LID group permissions, `BufferJSON` serialization, error boundaries, and the 11-fixture suite) with automated tests and update canonical documentation.
+* **Owner:** `developer.agent.md` (test implementation) & `tester.agent.md` (independent QA execution and verification)
 * **Files in Scope:**
   * `tests/unit/phase2-whatsapp-mock.test.ts`
+  * `tests/unit/phase3-ingestion.test.ts`
   * `tests/unit/baileys-error-boundary.test.ts`
-  * `docs/BAILEYS_INTEGRATION_SPEC.md`
+* **Implementation Tasks:**
+  1. **Add Focused v7 Adapter, Normalizer & Group Metadata Tests:**
+     * **Test V7-T1 (LID Sender & `participantAlt` Normalization):** Verify `event-normalizer.ts` normalizes `key.participant = "1029384756:3@lid"` and `key.participantAlt = "60123456789:0@s.whatsapp.net"` into `senderJid === "1029384756@lid"` and `senderAltJid === "60123456789@s.whatsapp.net"`.
+     * **Test V7-T2 (Multi-Identity Self-Echo Filtering in Gate 2):** Configure `MessageIngestor` with bot identities `["60199999999@s.whatsapp.net", "5544332211@lid"]`. Verify Gate 2 drops inbound messages when `fromMe: false` and either `senderJid` matches `"5544332211:2@lid"` or `senderAltJid` matches `"60199999999:1@s.whatsapp.net"`.
+     * **Test V7-T3 (Group Admin Permission Logic on `announce: true` vs `announce: false`):**
+       * Case A (`announce: false`, bot is regular member by `@lid`) $\rightarrow$ `botIsParticipant === true`, `botCanSend === true`.
+       * Case B (`announce: true`, bot is regular member `admin: null` by `@lid`) $\rightarrow$ `botIsParticipant === true`, `botCanSend === false`.
+       * Case C (`announce: true`, bot is `admin: 'admin'` or `'superadmin'` matched via `@lid` or `phoneNumber`) $\rightarrow$ `botIsParticipant === true`, `botCanSend === true`.
+     * **Test V7-T4 (`BufferJSON` Raw Payload Serialization):** Verify `event-normalizer.ts` serializes a raw message containing a `Uint8Array` / `Buffer` field into `rawPayloadJson` via `BufferJSON.replacer` without throwing or losing binary buffer structure.
+  2. **Tier 1 & Tier 2 Verification Execution:**
+     * **Tier 1 (v7 Unit & Integration Suite):** Run `npm run typecheck`, `npm run build`, and `npm test`.
+     * **Tier 2 (Synthetic Pipeline Regression):** Run `npm run simulate:live` (confirming that the core pipeline and file-backed mock outbox remain 100% regression-free after the multi-identity changes).
+  3. **Tier 3 (Local Baileys v7 Socket & QR Smoke Check):**
+     * Run `$env:WHATSAPP_ADAPTER_MODE="baileys"; npm run dev` with a clean `./private/whatsapp-auth` directory to confirm Baileys `7.0.0-rc14` boots, resolves the WhatsApp Web version via `fetchLatestWaWebVersion()`, and renders a terminal QR code without crashing. *(Physical SIM pairing and live group send remain gated on Developer authorization).*
+
+---
+
+### Partition D — Scoped Documentation Sync, Independent QA Report & Git Commit
+
+* **Owners:**
+  * `developer.agent.md`: Documentation updates and `docs/logs/dev/2026-11-13_phase-06-2-baileys-v7-migration.md` (plus `docs/logs/fixes/...` if any defect was fixed during the phase).
+  * `tester.agent.md`: Independent QA verification and `docs/logs/test/2026-11-13_phase-06-2-baileys-v7-migration-test.md`.
+* **Files in Scope:**
   * `docs/architecture.md`
+  * `docs/BAILEYS_INTEGRATION_SPEC.md`
   * `docs/project-plan.md`
   * `docs/DECISIONS.md`
   * `docs/operations-runbook.md`
   * `docs/logs/dev/2026-11-13_phase-06-2-baileys-v7-migration.md`
   * `docs/logs/test/2026-11-13_phase-06-2-baileys-v7-migration-test.md`
 * **Implementation Tasks:**
-  1. **Add Focused Baileys v7 Unit Tests:**
-     * **Test V7-T1 (LID Sender & `participantAlt` Normalization):** Normalize an inbound group message where `key.participant = "1029384756:3@lid"` and `key.participantAlt = "60123456789:0@s.whatsapp.net"`; assert `senderJid === "1029384756@lid"` and `senderAltJid === "60123456789@s.whatsapp.net"`.
-     * **Test V7-T2 (LID Self-Echo Prevention in Gate 2):** Configure bot identities `["60199999999@s.whatsapp.net", "5544332211@lid"]`; inject a message with `fromMe: false` but `key.participant = "5544332211:2@lid"`; assert Gate 2 drops the message as a self-echo.
-     * **Test V7-T3 (LID Group Metadata Permission Check):** Pass a v7 `GroupMetadata` object where `announce: true` and the bot appears in `participants` only by its `@lid` (`id: "5544332211@lid", admin: "admin"`); assert `botIsParticipant === true` and `botCanSend === true`.
-     * **Test V7-T4 (`BufferJSON` Raw Payload Serialization):** Normalize a message containing a `Uint8Array` / `Buffer` inside its raw message object; assert `rawPayloadJson` serializes cleanly via `BufferJSON.replacer` without throwing or losing binary type tags.
-  2. **Execute Full Verification & Simulation Suite:**
-     ~~~bash
-     npm run typecheck
-     npm run build
-     npm test
-     npm run simulate:live
-     ~~~
-  3. **Sync Documentation & Write Phase 6.2 Logs:**
-     * Update `@whiskeysockets/baileys` version references from `6.7.22` to `7.0.0-rc14` in `docs/architecture.md`, `docs/project-plan.md`, `docs/BAILEYS_INTEGRATION_SPEC.md`, `docs/DECISIONS.md`, and `docs/operations-runbook.md` (preserving historical Phase 0–6.1 logs untouched).
-     * Create `docs/logs/dev/2026-11-13_phase-06-2-baileys-v7-migration.md` and `docs/logs/test/2026-11-13_phase-06-2-baileys-v7-migration-test.md`.
-     * Stage and commit only Phase 6.2 files (`feat(phase-06.2/baileys-v7): migrate WhatsApp adapter to Baileys 7.0.0-rc14 with LID support`).
+  1. **Preserve Historical Records While Updating Current-State Specs:**
+     * In `docs/architecture.md`, `docs/BAILEYS_INTEGRATION_SPEC.md`, and `docs/operations-runbook.md`: Update current-state transport specifications to reflect `@whiskeysockets/baileys` `7.0.0-rc14`, multi-identity (`PN` + `LID`) matching, `announce: true` admin posting rules, and the v7 server-acceptance (`acknowledgedAtIso`) contract.
+     * In `docs/project-plan.md` and `docs/DECISIONS.md`: **Do not** alter historical `6.7.22` references inside completed Phase 0–6 sections. Instead, append a **Phase 6.2 (Baileys `7.0.0-rc14` Migration)** entry documenting the upgrade from `6.7.22` to `7.0.0-rc14`.
+  2. **Write Mandatory Phase 6.2 Logs:**
+     * Developer writes `docs/logs/dev/2026-11-13_phase-06-2-baileys-v7-migration.md`.
+     * Tester independently reviews test output and writes `docs/logs/test/2026-11-13_phase-06-2-baileys-v7-migration-test.md`.
+  3. **Strict Git Scope Audit & Commit:**
+     * Run `git status --porcelain` and verify that `docs/admin_panel_architecture_phased_execution_plan.md` (and any other unrelated files) are **not** staged.
+     * Stage only the explicit Phase 6.2 files and commit with prefix `feat(phase-06.2/baileys-v7): ...`.
 
 ---
 
-## 4. Acceptance Checklist (Phase 6.2 Gate)
+## 4. Phase 6.2 Acceptance Checklist
 
 - [ ] `@whiskeysockets/baileys` pinned to exact `"7.0.0-rc14"` in `package.json` and `package-lock.json`.
-- [ ] `npm run typecheck` and `npm run build` pass with zero errors.
-- [ ] LID (`@lid`), device-suffixed JID, and `participantAlt` normalization and self-echo tests pass.
-- [ ] `group-metadata.ts` matches bot participation and admin rights across both `@s.whatsapp.net` and `@lid` identities.
-- [ ] `rawPayloadJson` uses `BufferJSON.replacer`.
-- [ ] All existing unit, integration, and 11-fixture simulation tests pass (`npm test` & `npm run simulate:live`).
-- [ ] `$env:WHATSAPP_ADAPTER_MODE="baileys"; npm run dev` starts cleanly on `7.0.0-rc14` and renders a fresh terminal QR code.
-- [ ] Mandatory Phase 6.2 `dev` and `test` logs committed.
+- [ ] `npm run typecheck`, `npm run build`, and `npm test` pass 100%.
+- [ ] `IWhatsAppAdapter.getBotIdentities()` implemented in both `BaileysWhatsAppAdapter` and `MockWhatsAppAdapter` and wired through `src/app.ts` to `MessageIngestor`.
+- [ ] `group-metadata.ts` allows `botCanSend = true` when `announce === true` and the bot is `admin` or `superadmin`, and `botCanSend = false` when the bot is a non-admin in an announcement-only group.
+- [ ] Focused unit tests (`V7-T1` through `V7-T4`) pass for LID normalization, `participantAlt`, LID self-echo filtering, `BufferJSON` serialization, and group admin permissions.
+- [ ] Historical `6.7.22` records in `docs/project-plan.md`, `docs/DECISIONS.md`, and `docs/logs/` remain intact, with Phase 6.2 added as a new record.
+- [ ] Developer log (`dev`) and independent Tester log (`test`) created and verified.
 
----
-
-**End of Baileys v7.0.0-rc14 Migration Plan (`docs/phase-06-2-baileys-v7-migration-plan.md`).**
-```
-
-### Summary of My Recommendation
-
-1. **Why You Should Do This Upgrade Now:**
-   * **WhatsApp Communities use `@lid` (`V7-01` & `V7-04`):** Without v7's LID Signal session and `sock.user.lid` support, a bot inside a WhatsApp Community can fail to decrypt messages from `@lid` senders or fail group permission checks.
-   * **Anti-Ban Safety (`V7-03`):** v7 disables automatic delivery ACKs so WhatsApp does not flag your new SIM card as an unofficial automated client.
-   * **Zero Migration Pain Today (`V7-02`):** Because you haven't paired your production SIM card or onboarded faculties yet, you have zero legacy auth folders to migrate.
-2. **Next Step:** Save `docs/phase-06-2-baileys-v7-migration-plan.md` and tell your agent to execute **Partitions A through D**. Once Partition D finishes, you can scan the QR code with your new WhatsApp number directly on `7.0.0-rc14`!
+**End of Baileys v7.0.0-rc14 Migration Plan (`docs/baileys_v7_0_0_rc14_migration_plan.md`).**
