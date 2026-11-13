@@ -175,12 +175,12 @@ Execute Phase 6.2 sequentially across **Partitions A through D**. Do not modify 
 
 ## 4. Phase 6.2 Acceptance Checklist
 
-- [ ] `@whiskeysockets/baileys` pinned to exact `"7.0.0-rc14"` in `package.json` and `package-lock.json`.
-- [ ] `npm run typecheck`, `npm run build`, and `npm test` pass 100%.
-- [ ] `IWhatsAppAdapter.getBotIdentities()` implemented in both `BaileysWhatsAppAdapter` and `MockWhatsAppAdapter` and wired through `src/app.ts` to `MessageIngestor`.
-- [ ] `group-metadata.ts` allows `botCanSend = true` when `announce === true` and the bot is `admin` or `superadmin`, and `botCanSend = false` when the bot is a non-admin in an announcement-only group.
-- [ ] Focused unit tests (`V7-T1` through `V7-T4`) pass for LID normalization, `participantAlt`, LID self-echo filtering, `BufferJSON` serialization, and group admin permissions.
-- [ ] Historical `6.7.22` records in `docs/project-plan.md`, `docs/DECISIONS.md`, and `docs/logs/` remain intact, with Phase 6.2 added as a new record.
-- [ ] Developer log (`dev`) and independent Tester log (`test`) created and verified.
+- [x] `@whiskeysockets/baileys` pinned to exact `"7.0.0-rc14"` in `package.json` and `package-lock.json`.
+- [x] `npm run typecheck`, `npm run build`, and `npm test` pass 100%.
+- [x] `IWhatsAppAdapter.getBotIdentities()` implemented in both `BaileysWhatsAppAdapter` and `MockWhatsAppAdapter` and wired through `src/app.ts` to `MessageIngestor`.
+- [x] `group-metadata.ts` allows `botCanSend = true` when `announce === true` and the bot is `admin` or `superadmin`, and `botCanSend = false` when the bot is a non-admin in an announcement-only group.
+- [x] Focused unit tests (`V7-T1` through `V7-T4`) pass for LID normalization, `participantAlt`, LID self-echo filtering, `BufferJSON` serialization, and group admin permissions.
+- [x] Historical `6.7.22` records in `docs/project-plan.md`, `docs/DECISIONS.md`, and `docs/logs/` remain intact, with Phase 6.2 added as a new record.
+- [x] Developer log (`dev`) and independent Tester log (`test`) created and verified.
 
 **End of Baileys v7.0.0-rc14 Migration Plan (`docs/baileys_v7_0_0_rc14_migration_plan.md`).**
