@@ -98,7 +98,7 @@ Execute Phase 6.2 sequentially across **Partitions A through D**. Do not modify 
      * Export helper functions `normalizeUserJid(jid: string | null | undefined): string | null` (which strips `:device` suffixes such as `:12` while preserving `@s.whatsapp.net` or `@lid`) and `isSameWhatsAppIdentity(candidates: Array<string | null | undefined>, botIdentities: Array<string | null | undefined>): boolean`.
      * Update the JSDoc on `SendMessageResult.acknowledgedAtIso` to clarify that it records the UTC timestamp when `sendMessage()` resolved (provider request acceptance), not a client-emitted delivery ACK (`V7-03`).
   2. **Adapter Implementations (`src/whatsapp/mock-adapter.ts` & `src/whatsapp/baileys-client.ts`):**
-     * In `MockWhatsAppAdapter`: Implement `getBotIdentities(): string[]` returning all configured mock bot JIDs (e.g., `[this.botJid]` plus any optional mock LID configured for testing).
+     * In `MockWhatsAppAdapter`: Add an explicit optional `botLid?: string` test option alongside the existing `botJid?: string`, and implement `getBotIdentities(): string[]` returning all configured mock identities (`botJid` and `botLid`) after removing null values.
      * In `BaileysWhatsAppAdapter`: Implement `getBotIdentities(): string[]` returning all non-null normalized identities from `[this.sock?.user?.id, this.sock?.user?.lid]`. Keep `getBotJid()` returning the primary normalized identity (`normalizeUserJid(this.sock?.user?.id ?? this.sock?.user?.lid)`).
   3. **Composition Root & Ingestor Wiring (`src/app.ts` & `src/ingestion/message-ingestor.ts`):**
      * Update `MessageIngestor` constructor's `botJidProvider` type to accept:
@@ -108,12 +108,12 @@ Execute Phase 6.2 sequentially across **Partitions A through D**. Do not modify 
      * In `src/app.ts`, wire `MessageIngestor` with `() => adapter.getBotIdentities()` (falling back to `adapter.getBotJid()` if needed).
      * In `MessageIngestor` Gate 2 (Self-Echo / Loop Prevention), resolve the current bot identities array and reject the message as a self-echo if `msg.fromMe === true` **OR** `isSameWhatsAppIdentity([msg.senderJid, msg.senderAltJid], botIdentities)` is `true`.
   4. **Event Normalizer Updates (`src/whatsapp/event-normalizer.ts`):**
-     * Extract `senderJid` using `normalizeUserJid(key.participant ?? key.participantAlt ?? key.remoteJid)`.
+     * Extract `senderJid` using `normalizeUserJid(key.participant ?? key.participantAlt ?? key.remoteJid) ?? chatJid` so the existing provider-independent `senderJid: string` contract and group fallback behavior are preserved. If no usable group JID exists, reject the message during normalization rather than emitting a null sender.
      * Extract `senderAltJid` using `normalizeUserJid(key.participantAlt ?? key.remoteJidAlt)` when present and distinct from `senderJid`.
      * Serialize `rawPayloadJson` using `JSON.stringify(rawMsg, BufferJSON.replacer)` (`V7-07`).
   5. **Group Metadata Permission & LID Matching Fix (`src/whatsapp/group-metadata.ts`):**
      * Accept `botIdentities: string | string[] | null` when inspecting `GroupMetadata`.
-     * Match the bot's participant entry by comparing `botIdentities` against each participant's `id`, `lid`, and `phoneNumber` / `jid` fields using `isSameWhatsAppIdentity`.
+     * Match the bot's participant entry by comparing `botIdentities` against each participant's typed v7 identity fields (`id`, `lid`, and `phoneNumber`) using `isSameWhatsAppIdentity`. Verify the exact `7.0.0-rc14` TypeScript definitions before accessing any compatibility-only field such as `jid`; do not add an unsafe cast solely to read a field absent from the declared type.
      * Compute `botIsParticipant` and `botCanSend` with explicit announcement-group admin semantics:
        * If `!botIsParticipant` $\rightarrow$ `botCanSend = false`.
        * If `botIsParticipant && metadata.announce !== true` $\rightarrow$ `botCanSend = true`.
