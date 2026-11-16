@@ -1,5 +1,7 @@
 import { WhatsAppInvalidInputError } from './errors.js';
 import { PipelineTracer } from '../observability/telemetry.js';
+import { BufferJSON } from '@whiskeysockets/baileys';
+import { normalizeUserJid } from './adapter.js';
 import type { NormalizedInboundMessage, SupportedMessageKind } from './adapter.js';
 
 type JsonRecord = Record<string, unknown>;
@@ -73,6 +75,8 @@ function normalizeMessage(
   const chatJid = stringValue(key?.remoteJid);
   const messageId = stringValue(key?.id);
   if (!chatJid || !chatJid.endsWith('@g.us') || !messageId) return null;
+  const senderJid = normalizeUserJid(stringValue(key?.participant) ?? stringValue(key?.participantAlt) ?? chatJid) ?? chatJid;
+  const senderAltJid = normalizeUserJid(stringValue(key?.participantAlt) ?? stringValue(key?.remoteJidAlt));
   const rawContent = isRecord(raw.message) ? raw.message : null;
   if (!rawContent) return null;
   const content = unwrap(rawContent);
@@ -107,7 +111,8 @@ function normalizeMessage(
   return {
     chatJid,
     messageId,
-    senderJid: stringValue(key?.participant) ?? chatJid,
+    senderJid,
+    senderAltJid: senderAltJid !== senderJid ? senderAltJid : null,
     senderPushName: stringValue(raw.pushName),
     fromMe: key?.fromMe === true,
     timestampMs: timestampMs(raw.messageTimestamp),
@@ -117,7 +122,7 @@ function normalizeMessage(
     quotedParticipantJid: stringValue(context?.participant),
     quotedText: quotedText(context?.quotedMessage),
     media,
-    rawPayloadJson: JSON.stringify(raw)
+    rawPayloadJson: JSON.stringify(raw, BufferJSON.replacer)
   };
 }
 

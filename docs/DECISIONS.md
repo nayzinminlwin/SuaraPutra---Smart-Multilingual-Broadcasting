@@ -145,3 +145,17 @@
 * Phase 6 synthetic verification runs all 11 fixture scenarios through the
   same composition root used by the mock adapter. The live SIM and systemd
   smoke test are operationally postponed until the physical SIM is available.
+
+## 11. Phase 6.2 Baileys v7 Migration
+
+* **Dependency:** The current Baileys dependency is pinned exactly to
+  `@whiskeysockets/baileys` `7.0.0-rc14`. Historical Phase 0–6 baseline
+  references remain unchanged.
+* **Identity contract:** WhatsApp automation identity matching accepts both
+  phone-number JIDs (`@s.whatsapp.net`) and linked-device LIDs (`@lid`),
+  including device suffix normalization and alternate sender fields.
+* **Announcement permissions:** A bot may send in an `announce: true` group
+  only when its matched participant is an admin or superadmin.
+* **Send acknowledgement:** `acknowledgedAtIso` records provider request
+  acceptance when `sendMessage()` resolves; it is not a client-emitted
+  delivery ACK.

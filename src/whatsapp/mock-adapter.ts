@@ -8,9 +8,10 @@ import {
   WhatsAppPermanentError,
   WhatsAppTransientError
 } from './errors.js';
-import type {
-  ConnectionChangeHandler, ConnectionStatus, GroupMetadataSummary, IWhatsAppAdapter,
-  InboundMessageHandler, NormalizedInboundMessage, OutboundMessagePayload, SendMessageResult
+import {
+  normalizeUserJid,
+  type ConnectionChangeHandler, type ConnectionStatus, type GroupMetadataSummary, type IWhatsAppAdapter,
+  type InboundMessageHandler, type NormalizedInboundMessage, type OutboundMessagePayload, type SendMessageResult
 } from './adapter.js';
 import { normalizeUpsert } from './event-normalizer.js';
 
@@ -27,6 +28,7 @@ export interface MockWhatsAppAdapterOptions {
   maxMediaBytes?: number;
   latencyMs?: number;
   botJid?: string;
+  botLid?: string;
   faultMode?: MockFaultMode;
   faultModesByTarget?: Readonly<Record<string, MockFaultMode>>;
   faultModesByCallIndex?: Readonly<Record<number, MockFaultMode>>;
@@ -61,7 +63,12 @@ export class MockWhatsAppAdapter implements IWhatsAppAdapter {
   }
 
   getConnectionStatus(): ConnectionStatus { return this.status; }
-  getBotJid(): string | null { return this.options.botJid ?? null; }
+  getBotJid(): string | null { return normalizeUserJid(this.options.botJid); }
+  getBotIdentities(): string[] {
+    return [this.options.botJid, this.options.botLid]
+      .map(normalizeUserJid)
+      .filter((jid): jid is string => jid !== null);
+  }
   onMessage(handler: InboundMessageHandler): void { this.messageHandlers.push(handler); }
   onConnectionChange(handler: ConnectionChangeHandler): void { this.connectionHandlers.push(handler); }
 

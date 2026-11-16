@@ -211,6 +211,20 @@ await sock.sendMessage(targetGroupJid, content, {
 
 ---
 
+### 3.3 Current Baileys v7 Adapter Contract
+
+The current dependency is pinned to `@whiskeysockets/baileys` `7.0.0-rc14`.
+The adapter persists native multi-file auth state and matches the automation
+account using both its phone-number JID (`sock.user.id`) and LID
+(`sock.user.lid`). Inbound normalization supports `participantAlt` and
+`remoteJidAlt`, and strips device suffixes before identity comparison.
+
+For groups with `announce === true`, the bot may send only when its matched
+participant has `admin === 'admin'` or `admin === 'superadmin'`. The adapter's
+`acknowledgedAtIso` is the UTC timestamp when `sendMessage()` resolves,
+representing provider request acceptance rather than a client-emitted
+delivery ACK.
+
 ## 4. Application Boundary
 
 The initial implementation is a TypeScript modular monolith. Baileys is used

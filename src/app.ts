@@ -71,7 +71,10 @@ export class SuaraPutraApplication {
       eventLogs: events
     });
     this.ingestor = new MessageIngestor(messageIngestorOptionsFromConfig(this.config, {
-      botJidProvider: () => this.adapter.getBotJid(),
+      botJidProvider: () => {
+        const identities = this.adapter.getBotIdentities();
+        return identities.length > 0 ? identities : this.adapter.getBotJid();
+      },
       sources,
       announcements,
       deliveryJobs: jobs,

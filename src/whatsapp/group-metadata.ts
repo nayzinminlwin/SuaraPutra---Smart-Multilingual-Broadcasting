@@ -1,15 +1,21 @@
 import type { GroupMetadata } from '@whiskeysockets/baileys';
+import { isSameWhatsAppIdentity } from './adapter.js';
 import type { GroupMetadataSummary } from './adapter.js';
 
 export function summarizeGroupMetadata(
   metadata: GroupMetadata,
-  botJid: string | null
+  botIdentities: string | string[] | null
 ): GroupMetadataSummary {
-  const botBaseJid = botJid?.split(':')[0] ?? null;
+  const identities = Array.isArray(botIdentities) ? botIdentities : [botIdentities];
   const participant = metadata.participants.find((entry) => {
-    const jid = entry.id?.split(':')[0];
-    return jid !== undefined && (jid === botJid || jid === botBaseJid);
+    return isSameWhatsAppIdentity([entry.id, entry.lid, entry.phoneNumber], identities);
   });
+  const botIsParticipant = participant !== undefined;
+  const botCanSend = botIsParticipant && (
+    metadata.announce !== true ||
+    participant.admin === 'admin' ||
+    participant.admin === 'superadmin'
+  );
 
   return {
     groupJid: metadata.id,
@@ -17,7 +23,7 @@ export function summarizeGroupMetadata(
     isCommunity: metadata.isCommunity === true,
     isCommunityAnnounce: metadata.isCommunityAnnounce === true,
     linkedParentJid: metadata.linkedParent ?? null,
-    botIsParticipant: participant !== undefined,
-    botCanSend: participant !== undefined && metadata.announce !== true
+    botIsParticipant,
+    botCanSend
   };
 }

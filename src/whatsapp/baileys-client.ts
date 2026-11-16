@@ -1,7 +1,9 @@
 import { Boom } from '@hapi/boom';
+import qrcode from 'qrcode-terminal';
 import {
   DisconnectReason,
   downloadMediaMessage,
+  fetchLatestWaWebVersion,
   isJidGroup,
   makeWASocket,
   normalizeMessageContent,
@@ -16,6 +18,7 @@ import type {
   ConnectionChangeHandler, ConnectionStatus, GroupMetadataSummary, IWhatsAppAdapter,
   InboundMessageHandler, NormalizedInboundMessage, OutboundMessagePayload, SendMessageResult
 } from './adapter.js';
+import { normalizeUserJid } from './adapter.js';
 import { normalizeUpsert } from './event-normalizer.js';
 import { summarizeGroupMetadata } from './group-metadata.js';
 
@@ -67,7 +70,14 @@ export class BaileysWhatsAppAdapter implements IWhatsAppAdapter {
   }
 
   getConnectionStatus(): ConnectionStatus { return this.status; }
-  getBotJid(): string | null { return this.socket?.user?.id ?? null; }
+  getBotJid(): string | null {
+    return normalizeUserJid(this.socket?.user?.id ?? this.socket?.user?.lid);
+  }
+  getBotIdentities(): string[] {
+    return [this.socket?.user?.id, this.socket?.user?.lid]
+      .map(normalizeUserJid)
+      .filter((jid): jid is string => jid !== null);
+  }
   onMessage(handler: InboundMessageHandler): void { this.messageHandlers.push(handler); }
   onConnectionChange(handler: ConnectionChangeHandler): void { this.connectionHandlers.push(handler); }
 
@@ -100,7 +110,7 @@ export class BaileysWhatsAppAdapter implements IWhatsAppAdapter {
     if (!isJidGroup(groupJid)) throw new WhatsAppInvalidInputError(`Invalid group JID: ${groupJid}`);
     if (!this.socket || this.status !== 'open') throw new WhatsAppTransientError('WhatsApp socket is not open');
     try {
-      return summarizeGroupMetadata(await this.socket.groupMetadata(groupJid), this.getBotJid());
+      return summarizeGroupMetadata(await this.socket.groupMetadata(groupJid), this.getBotIdentities());
     } catch (error) {
       throw new WhatsAppTransientError('Unable to retrieve WhatsApp group metadata', { cause: error });
     }
@@ -108,22 +118,30 @@ export class BaileysWhatsAppAdapter implements IWhatsAppAdapter {
 
   private async openSocket(): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState(this.config.WHATSAPP_AUTH_DIR);
+    const waWebVersion = await fetchLatestWaWebVersion({});
+    if (!waWebVersion.isLatest) {
+      this.logger.warn({ error: waWebVersion.error }, 'Unable to fetch the latest WhatsApp Web version; using Baileys fallback');
+    }
     const socket = makeWASocket({
       auth: state,
-      printQRInTerminal: false,
+      version: waWebVersion.version,
       markOnlineOnConnect: false,
       syncFullHistory: false
     });
     this.socket = socket;
     socket.ev.on('creds.update', saveCreds);
     socket.ev.on('messages.upsert', (upsert) => {
+      if (this.status !== 'open') return;
       void this.handleUpsert(socket, upsert).catch(error => {
         this.logger.error({
           errorCode: error instanceof Error ? error.name : 'WHATSAPP_UPSERT_ERROR'
         }, 'WhatsApp upsert handling failed');
       });
     });
-    socket.ev.on('connection.update', (update) => { void this.handleConnectionUpdate(update); });
+    socket.ev.on('connection.update', (update) => {
+      if (update.qr) qrcode.generate(update.qr, { small: true });
+      void this.handleConnectionUpdate(update);
+    });
     this.setStatus('connecting');
   }
 

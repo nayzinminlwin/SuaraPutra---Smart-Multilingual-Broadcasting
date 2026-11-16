@@ -18,7 +18,13 @@ first pairing, and complete QR/pairing with the dedicated account. The adapter
 stores multi-file credentials in `WHATSAPP_AUTH_DIR`; never copy those files
 into logs or Git. Before enabling publishing, inspect every configured group
 with `getGroupMetadata` and verify `botIsParticipant`, `botCanSend`, the
-Community parent, and the trusted JID mapping.
+Community parent, and the trusted JID mapping. Baileys v7 matches both the
+phone-number JID and LID, including alternate sender identities. For
+`announce: true` groups, confirm that the matched bot participant is an admin
+or superadmin before enabling publishing.
+
+The adapter records `acknowledgedAtIso` when `sendMessage()` resolves. This is
+provider request acceptance, not a client-emitted delivery ACK.
 
 Transient disconnects reconnect with bounded backoff. A `loggedOut` disconnect
 halts reconnection and requires operator re-pairing.
