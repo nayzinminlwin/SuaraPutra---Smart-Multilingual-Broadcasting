@@ -249,6 +249,9 @@ Enter one HTTPS invite link for each prompt:
 https://chat.whatsapp.com/INVITE_CODE
 ```
 
+Press **Enter** without typing a link to keep the current JID for that
+language. This allows you to update only selected groups.
+
 The script displays the resolved group name and JID, asks for confirmation,
 then updates only these variables in `/opt/suaraputra/.env`:
 

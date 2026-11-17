@@ -10,7 +10,6 @@ import {
   fetchLatestWaWebVersion,
   makeWASocket,
   useMultiFileAuthState,
-  type GroupMetadata,
   type WASocket
 } from '@whiskeysockets/baileys';
 
@@ -26,8 +25,7 @@ type GroupRole = typeof GROUP_ENV_KEYS[number][0];
 type ResolvedGroup = {
   role: GroupRole;
   envKey: string;
-  inviteLink: string;
-  metadata: GroupMetadata;
+  jid: string;
 };
 
 function extractInviteCode(value: string): string {
@@ -80,9 +78,18 @@ async function connect(authDir: string): Promise<WASocket> {
   return socket;
 }
 
+function readConfiguredJids(envContent: string): Map<string, string> {
+  const configuredJids = new Map<string, string>();
+  for (const [, envKey] of GROUP_ENV_KEYS) {
+    const match = envContent.match(new RegExp(`^${envKey}=([^\\r\\n]*)$`, 'm'));
+    if (match?.[1]?.trim()) configuredJids.set(envKey, match[1].trim());
+  }
+  return configuredJids;
+}
+
 async function updateEnvFile(envPath: string, groups: ResolvedGroup[]): Promise<boolean> {
   const original = await readFile(envPath, 'utf8');
-  const values = new Map(groups.map(group => [group.envKey, group.metadata.id]));
+  const values = new Map(groups.map(group => [group.envKey, group.jid]));
   let updated = original;
 
   for (const [envKey, value] of values) {
@@ -121,10 +128,24 @@ async function verifyEnvWritable(envPath: string): Promise<void> {
   }
 }
 
-async function askForGroups(readline: ReturnType<typeof createInterface>): Promise<ResolvedGroup[]> {
+async function askForGroups(
+  readline: ReturnType<typeof createInterface>,
+  configuredJids: Map<string, string>
+): Promise<ResolvedGroup[]> {
   const groups: ResolvedGroup[] = [];
   for (const [role, envKey] of GROUP_ENV_KEYS) {
-    const inviteLink = (await readline.question(`Enter the ${role} group invite link: `)).trim();
+    const inviteLink = (await readline.question(
+      `Enter the ${role} group invite link (press Enter to keep the current JID): `
+    )).trim();
+    if (!inviteLink) {
+      const currentJid = configuredJids.get(envKey);
+      if (!currentJid || !/^[0-9-]+@g\.us$/.test(currentJid)) {
+        throw new Error(`No valid existing JID is configured for the ${role} group`);
+      }
+      console.log(`Keeping ${role}: ${currentJid}`);
+      groups.push({ role, envKey, jid: currentJid });
+      continue;
+    }
     const inviteCode = extractInviteCode(inviteLink);
     console.log(`Resolving the ${role} group...`);
     const metadata = await currentSocket.groupGetInviteInfo(inviteCode);
@@ -132,7 +153,7 @@ async function askForGroups(readline: ReturnType<typeof createInterface>): Promi
       throw new Error(`Baileys returned an invalid group JID for the ${role} group`);
     }
     console.log(`Resolved ${role}: ${metadata.subject ?? '(unnamed group)'} -> ${metadata.id}`);
-    groups.push({ role, envKey, inviteLink, metadata });
+    groups.push({ role, envKey, jid: metadata.id });
   }
   return groups;
 }
@@ -148,13 +169,14 @@ async function main(): Promise<void> {
     console.log(`Using WhatsApp auth directory: ${authDir}`);
     console.log('The account must already be paired. This script does not join groups.');
     await verifyEnvWritable(envPath);
+    const configuredJids = readConfiguredJids(await readFile(envPath, 'utf8'));
     currentSocket = await connect(authDir);
-    const groups = await askForGroups(readline);
+    const groups = await askForGroups(readline, configuredJids);
 
     const seenJids = new Set<string>();
     const duplicate = groups.find(group => {
-      if (seenJids.has(group.metadata.id)) return true;
-      seenJids.add(group.metadata.id);
+      if (seenJids.has(group.jid)) return true;
+      seenJids.add(group.jid);
       return false;
     });
     if (duplicate) {
@@ -163,7 +185,7 @@ async function main(): Promise<void> {
 
     console.log('\nResolved group mappings:');
     for (const group of groups) {
-      console.log(`${group.envKey}=${group.metadata.id}`);
+      console.log(`${group.envKey}=${group.jid}`);
     }
     const confirmation = (await readline.question(`\nUpdate ${envPath} with these five JIDs? (yes/no): `)).trim().toLowerCase();
     if (confirmation !== 'yes') {
