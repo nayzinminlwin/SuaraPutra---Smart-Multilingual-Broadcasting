@@ -265,6 +265,11 @@ resolved group is the intended Community group and that the paired account
 has the required membership and send permission before changing
 `BROADCAST_KILL_SWITCH` to `false`.
 
+The script uses an atomic replacement when the application directory is
+writable by the service user. If the VM keeps the application directory owned
+by the deployment user, it falls back to updating the existing mode-`600`
+`.env` file in place and prints a warning.
+
 Start the service after the mappings are saved:
 
 ```bash

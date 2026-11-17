@@ -95,9 +95,15 @@ async function updateEnvFile(envPath: string, groups: ResolvedGroup[]): Promise<
 
   const fileStats = await stat(envPath);
   const temporaryPath = `${envPath}.tmp`;
-  await writeFile(temporaryPath, updated, { encoding: 'utf8', mode: fileStats.mode & 0o777 });
-  await chmod(temporaryPath, fileStats.mode & 0o777);
-  await rename(temporaryPath, envPath);
+  try {
+    await writeFile(temporaryPath, updated, { encoding: 'utf8', mode: fileStats.mode & 0o777 });
+    await chmod(temporaryPath, fileStats.mode & 0o777);
+    await rename(temporaryPath, envPath);
+  } catch (error) {
+    if (!(error instanceof Error) || (error as NodeJS.ErrnoException).code !== 'EACCES') throw error;
+    console.warn('The .env directory is not writable by the service user; updating the existing .env file in place.');
+    await writeFile(envPath, updated, { encoding: 'utf8' });
+  }
 }
 
 async function askForGroups(readline: ReturnType<typeof createInterface>): Promise<ResolvedGroup[]> {
