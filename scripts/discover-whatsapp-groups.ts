@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { chmod, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, constants, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
@@ -80,7 +80,7 @@ async function connect(authDir: string): Promise<WASocket> {
   return socket;
 }
 
-async function updateEnvFile(envPath: string, groups: ResolvedGroup[]): Promise<void> {
+async function updateEnvFile(envPath: string, groups: ResolvedGroup[]): Promise<boolean> {
   const original = await readFile(envPath, 'utf8');
   const values = new Map(groups.map(group => [group.envKey, group.metadata.id]));
   let updated = original;
@@ -95,9 +95,30 @@ async function updateEnvFile(envPath: string, groups: ResolvedGroup[]): Promise<
 
   const fileStats = await stat(envPath);
   const temporaryPath = `${envPath}.tmp`;
-  await writeFile(temporaryPath, updated, { encoding: 'utf8', mode: fileStats.mode & 0o777 });
-  await chmod(temporaryPath, fileStats.mode & 0o777);
-  await rename(temporaryPath, envPath);
+  try {
+    await writeFile(temporaryPath, updated, { encoding: 'utf8', mode: fileStats.mode & 0o777 });
+    await chmod(temporaryPath, fileStats.mode & 0o777);
+    await rename(temporaryPath, envPath);
+    return true;
+  } catch (error) {
+    if (!(error instanceof Error) || (error as NodeJS.ErrnoException).code !== 'EACCES') throw error;
+    console.warn('The .env directory is not writable by the service user; updating the existing .env file in place.');
+    try {
+      await unlink(temporaryPath);
+    } catch (cleanupError) {
+      if (!(cleanupError instanceof Error) || (cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') throw cleanupError;
+    }
+    await writeFile(envPath, updated, { encoding: 'utf8' });
+    return false;
+  }
+}
+
+async function verifyEnvWritable(envPath: string): Promise<void> {
+  try {
+    await access(envPath, constants.W_OK);
+  } catch {
+    throw new Error(`The running user cannot write ${envPath}; fix its ownership or permissions before entering group links`);
+  }
 }
 
 async function askForGroups(readline: ReturnType<typeof createInterface>): Promise<ResolvedGroup[]> {
@@ -126,6 +147,7 @@ async function main(): Promise<void> {
   try {
     console.log(`Using WhatsApp auth directory: ${authDir}`);
     console.log('The account must already be paired. This script does not join groups.');
+    await verifyEnvWritable(envPath);
     currentSocket = await connect(authDir);
     const groups = await askForGroups(readline);
 
@@ -149,8 +171,10 @@ async function main(): Promise<void> {
       return;
     }
 
-    await updateEnvFile(envPath, groups);
-    console.log(`Updated ${envPath} atomically.`);
+    const updatedAtomically = await updateEnvFile(envPath, groups);
+    console.log(updatedAtomically
+      ? `Updated ${envPath} atomically.`
+      : `Updated ${envPath} in place.`);
   } finally {
     readline.close();
     if (currentSocket) currentSocket.end(undefined);
