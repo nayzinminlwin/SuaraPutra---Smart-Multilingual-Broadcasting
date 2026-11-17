@@ -10,6 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/app.js",
     "dev": "tsx src/app.ts",
+    "discover:groups": "tsx scripts/discover-whatsapp-groups.ts",
     "simulate:live": "tsx scripts/run-live-simulation.ts",
     "test": "vitest run",
     "test:watch": "vitest",
