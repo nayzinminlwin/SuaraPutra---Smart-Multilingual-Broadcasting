@@ -19,10 +19,19 @@ const translated = (id: string, text: string) => response(id, 8, {
 describe('Phase 4 AI processor and validation', () => {
   it('normalizes escaped line breaks and removes an unmatched bold marker', () => {
     expect(normalizeWhatsAppText('Title\\n\\n*Heading*\\nText')).toBe('Title\n\n*Heading*\nText');
+    expect(normalizeWhatsAppText('Title\\r\\nText')).toBe('Title\nText');
     expect(normalizeWhatsAppText('*Heading* (first-served*)')).toBe('*Heading* (first-served)');
     expect(normalizeWhatsAppText(
       '*1. Heading One*\\n\\nText (first-served*)\\n\\n*2. Heading Two*'
     )).toBe('*1. Heading One*\n\nText (first-served)\n\n*2. Heading Two*');
+  });
+
+  it('does not alter ordinary or incomplete asterisk text', () => {
+    expect(normalizeWhatsAppText('5 * 3 = 15')).toBe('5 * 3 = 15');
+    expect(normalizeWhatsAppText('Use * as a wildcard')).toBe('Use * as a wildcard');
+    expect(normalizeWhatsAppText('*unfinished')).toBe('*unfinished');
+    expect(normalizeWhatsAppText('literal \\* marker')).toBe('literal \\* marker');
+    expect(normalizeWhatsAppText('*bold* and _italic_ ~strike~')).toBe('*bold* and _italic_ ~strike~');
   });
 
   it('normalizes WhatsApp formatting in model translations before delivery', async () => {

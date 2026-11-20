@@ -14,11 +14,12 @@ export function normalizeWhatsAppText(text: string): string {
       const previous = normalized[index - 1];
       const next = normalized[index + 1];
       return previous !== undefined && next !== undefined &&
-        !/\s/.test(previous) && !/\s/.test(next);
+        !/\s/.test(previous) && /[\])},.!?:;]/.test(next);
     });
-    const unmatchedIndex = inlineMarkers[inlineMarkers.length - 1] ??
-      markerIndexes[markerIndexes.length - 1];
-    normalized = `${normalized.slice(0, unmatchedIndex)}${normalized.slice(unmatchedIndex + 1)}`;
+    const unmatchedIndex = inlineMarkers[inlineMarkers.length - 1];
+    if (unmatchedIndex !== undefined) {
+      normalized = `${normalized.slice(0, unmatchedIndex)}${normalized.slice(unmatchedIndex + 1)}`;
+    }
   }
   return normalized;
 }

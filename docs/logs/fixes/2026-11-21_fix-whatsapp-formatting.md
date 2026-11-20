@@ -82,7 +82,7 @@ npm test
 
 **Results:**
 
-- **Passed:** 11 focused tests, full test suite, and TypeScript typecheck.
+- **Passed:** 12 focused tests, full test suite, and TypeScript typecheck.
 - **Failed:** None.
 - **Skipped / blocked:** Manual WhatsApp retest remains pending.
 
@@ -102,4 +102,12 @@ processing uses the normalization.
 
 ## Appended Follow-up Fixes
 
-None.
+### Follow-up Fix — 2026-11-21
+
+**Status:** Completed
+**Additional changes:** Restricted unmatched-marker repair to likely inline
+formatting markers so ordinary multiplication, wildcard, incomplete, and
+escaped asterisk text remains unchanged. Added CRLF and edge-case tests.
+**Verification:** `npm test -- tests/unit/phase4-ai-and-validation.test.ts`
+(12 passed); `npm run typecheck` passed.
+**Commit:** Pending
