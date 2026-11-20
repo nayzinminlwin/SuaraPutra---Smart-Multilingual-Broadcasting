@@ -17,7 +17,7 @@ This document is the **single authoritative technical Source of Truth** for **Su
 In the event of any conflict between exploratory planning documents and this specification, **this document (`docs/architecture.md`) and `docs/DECISIONS.md` take absolute precedence**.
 
 ### 1.2 System Mission
-SuaraPutra monitors a single configured WhatsApp source group inside an existing WhatsApp Community, ingests incoming messages (`TEXT`, `IMAGE_CAPTION`, and `IMAGE_ONLY`) in strict chronological FIFO order, uses **Gemini 3.8 Flash (`gemini-3.8-flash`)** in a single unified call to evaluate text announcement worthiness (`1.0–10.0`) and translate or separate content across **four target languages** (Malay `ms`, English `en`, Mandarin `zh-CN`, and Tamil `ta`), validates critical URLs and output integrity in TypeScript, and broadcasts each language version to its dedicated WhatsApp Community destination group using destination-aware FIFO ordering.
+SuaraPutra monitors configured WhatsApp source groups inside an existing WhatsApp Community, ingests incoming messages (`TEXT`, `IMAGE_CAPTION`, and `IMAGE_ONLY`) in strict chronological FIFO order, uses **Gemini 3.8 Flash (`gemini-3.8-flash`)** in a single unified call to evaluate text announcement worthiness (`1.0–10.0`) and translate or separate content across **four target languages** (Malay `ms`, English `en`, Mandarin `zh-CN`, and Tamil `ta`), validates critical URLs and output integrity in TypeScript, and broadcasts each language version to its dedicated WhatsApp Community destination group using destination-aware FIFO ordering.
 
 ### 1.3 Core Architectural Invariants
 1. **Strict Transport Decoupling (Mock-First & File-Backed Simulation):** Core domain modules (`ingestion`, `ai`, `validation`, `routing`, `delivery`, `database`) must **never** import `@whiskeysockets/baileys` directly. All WhatsApp interactions occur exclusively through the `IWhatsAppAdapter` interface, enabling both in-memory unit testing and 95% live file-backed Gemini simulations (`npm run simulate:live`) without a physical SIM card.
@@ -415,7 +415,7 @@ To guarantee that fast passthrough messages (`IMAGE_ONLY`) and out-of-order even
 
 | Gate | Check Performed | Action on Failure |
 |---|---|---|
-| **Gate 1: Source Scope** | `msg.chatJid === config.WHATSAPP_SOURCE_GROUP_JID` | Silently ignore; do not write to DB (prevents noise from destination groups or DMs). |
+| **Gate 1: Source Scope** | `msg.chatJid` belongs to the configured source-group JID set, including the legacy `WHATSAPP_SOURCE_GROUP_JID` | Silently ignore; do not write to DB (prevents noise from destination groups or DMs). |
 | **Gate 2: Loop & Self-Echo** | `msg.fromMe === false` AND `msg.senderJid !== resolveBotJid()` (where `resolveBotJid` dynamically queries `adapter.getBotJid()` after connection) | Silently ignore; prevents infinite broadcast loops even when `botJid` becomes available only after socket connection. |
 | **Gate 3: Supported Kind** | `msg.kind !== 'UNSUPPORTED'` | Log `DEBUG` event; ignore unsupported media types (`video`, `sticker`, `poll`, etc.). |
 | **Gate 4: Primary Deduplication** | Check SQLite `source_messages` for existing `(chat_jid, message_id)` | Log `INFO` duplicate event; return early without reprocessing. |
@@ -889,6 +889,7 @@ export const EnvConfigSchema = z.object({
   WHATSAPP_ADAPTER_MODE: z.enum(['mock', 'baileys']).default('mock'),
   WHATSAPP_AUTH_DIR: z.string().default('./private/whatsapp-auth'),
   WHATSAPP_SOURCE_GROUP_JID: WhatsAppGroupJidSchema,
+  WHATSAPP_SOURCE_GROUP_JIDS: z.string().optional(), // comma-separated additional source group JIDs
   WHATSAPP_MALAY_GROUP_JID: WhatsAppGroupJidSchema,
   WHATSAPP_ENGLISH_GROUP_JID: WhatsAppGroupJidSchema,
   WHATSAPP_MANDARIN_GROUP_JID: WhatsAppGroupJidSchema,

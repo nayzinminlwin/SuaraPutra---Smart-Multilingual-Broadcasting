@@ -14,6 +14,7 @@ import { MessageDeduplicator } from './deduplicator.js';
 import { MediaStore } from './media-store.js';
 import type { AiProcessor } from '../ai/ai-processor.js';
 import type { DeliveryQueue } from '../delivery/queue.js';
+import { getSourceGroupJids } from '../config/groups.js';
 
 const LANGUAGE_ORDER: readonly { code: LanguageCode; order: 1 | 2 | 3 | 4 }[] = [
   { code: 'ms', order: 1 }, { code: 'en', order: 2 }, { code: 'zh-CN', order: 3 }, { code: 'ta', order: 4 }
@@ -28,7 +29,8 @@ export type IngestionResult = Readonly<{
 }>;
 
 export interface MessageIngestorOptions {
-  sourceGroupJid: string;
+  sourceGroupJid?: string;
+  sourceGroupJids?: readonly string[];
   botJid?: string | null;
   botJidProvider?: string | string[] | null | (() => string | string[] | null);
   contextMaxMessages: number;
@@ -45,6 +47,7 @@ export interface MessageIngestorOptions {
 }
 
 export class MessageIngestor {
+  private readonly sourceGroupJids: ReadonlySet<string>;
   private readonly pendingQueue: Array<{
     message: NormalizedInboundMessage;
     arrivalSeq: number;
@@ -59,6 +62,9 @@ export class MessageIngestor {
   private readonly translations: TranslationRepository;
 
   constructor(private readonly options: MessageIngestorOptions) {
+    const sourceGroupJids = options.sourceGroupJids ?? (options.sourceGroupJid ? [options.sourceGroupJid] : []);
+    if (sourceGroupJids.length === 0) throw new Error('At least one source group JID is required');
+    this.sourceGroupJids = new Set(sourceGroupJids);
     this.deduplicator = new MessageDeduplicator(options.sources);
     this.context = new ContextAssembler(options.sources, options.contextMaxMessages, options.contextWindowSeconds);
     this.translations = new TranslationRepository(options.database);
@@ -221,7 +227,7 @@ export class MessageIngestor {
       console.log(`[TRACE:${tracer.traceId}] [CP03_GATE_CHECKS] ${name}`, { passed, ...metadata });
       return passed;
     };
-    if (!gate(message.chatJid === this.options.sourceGroupJid, 'GATE_1_SOURCE_GROUP')) {
+    if (!gate(this.sourceGroupJids.has(message.chatJid), 'GATE_1_SOURCE_GROUP')) {
       tracer.endCheckpoint('CP03_GATE_CHECKS', { rejectedGate: 1 });
       return { accepted: false, reason: 'out_of_scope', message };
     }
@@ -460,11 +466,11 @@ export class MessageIngestor {
 }
 
 export function messageIngestorOptionsFromConfig(
-  config: Pick<EnvConfig, 'WHATSAPP_SOURCE_GROUP_JID' | 'CONTEXT_MAX_MESSAGES' | 'CONTEXT_WINDOW_SECONDS' | 'MEDIA_STORAGE_DIR' | 'MAX_MEDIA_BYTES' | 'WHATSAPP_MALAY_GROUP_JID' | 'WHATSAPP_ENGLISH_GROUP_JID' | 'WHATSAPP_MANDARIN_GROUP_JID' | 'WHATSAPP_TAMIL_GROUP_JID'>,
-  dependencies: Omit<MessageIngestorOptions, 'sourceGroupJid' | 'contextMaxMessages' | 'contextWindowSeconds' | 'destinationGroups' | 'mediaStore'>
+  config: Pick<EnvConfig, 'WHATSAPP_SOURCE_GROUP_JID' | 'WHATSAPP_SOURCE_GROUP_JIDS' | 'CONTEXT_MAX_MESSAGES' | 'CONTEXT_WINDOW_SECONDS' | 'MEDIA_STORAGE_DIR' | 'MAX_MEDIA_BYTES' | 'WHATSAPP_MALAY_GROUP_JID' | 'WHATSAPP_ENGLISH_GROUP_JID' | 'WHATSAPP_MANDARIN_GROUP_JID' | 'WHATSAPP_TAMIL_GROUP_JID'>,
+  dependencies: Omit<MessageIngestorOptions, 'sourceGroupJid' | 'sourceGroupJids' | 'contextMaxMessages' | 'contextWindowSeconds' | 'destinationGroups' | 'mediaStore'>
 ): MessageIngestorOptions {
   return {
-    ...dependencies, sourceGroupJid: config.WHATSAPP_SOURCE_GROUP_JID,
+    ...dependencies, sourceGroupJids: getSourceGroupJids(config),
     contextMaxMessages: config.CONTEXT_MAX_MESSAGES, contextWindowSeconds: config.CONTEXT_WINDOW_SECONDS,
     destinationGroups: {
       ms: config.WHATSAPP_MALAY_GROUP_JID,

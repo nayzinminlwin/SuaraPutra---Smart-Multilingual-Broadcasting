@@ -10,7 +10,7 @@
 ## 1. Project Identity & Scope Boundaries
 
 * **Project Name:** SuaraPutra (*"SuaraPutra - Smart Multilingual Broadcasting"*).
-* **Core Objective:** Monitor a single configured WhatsApp source group inside an existing WhatsApp Community, identify announcements using an LLM, synthesize accurate announcements across 4 configured languages, and broadcast each language version to its dedicated Community destination group.
+* **Core Objective:** Monitor configured WhatsApp source groups inside an existing WhatsApp Community, identify announcements using an LLM, synthesize accurate announcements across 4 configured languages, and broadcast each language version to its dedicated Community destination group.
 * **Release Scope (v1 - Current):**
   * **In Scope:** Text announcements, image-only messages, and image + caption messages. Complete TypeScript backend, SQLite persistence, robust database-backed queue with retries and deduplication, mock-capable WhatsApp adapter.
   * **Out of Scope (v1):** Image OCR, web-based administrative dashboard, non-text media translation (audio, video, documents, stickers), multi-source group aggregation, manual broadcast approval workflows.
@@ -64,7 +64,7 @@
 
 ## 5. Target Languages & Group Routing
 
-* **Source:** Exactly one configured source group JID (filtered at ingestion).
+* **Source:** One or more configured source group JIDs (filtered at ingestion). The legacy `WHATSAPP_SOURCE_GROUP_JID` remains active and `WHATSAPP_SOURCE_GROUP_JIDS` may add source groups without creating another WhatsApp connection.
 * **Target Destinations (4 Languages):**
   * **Malay (`ms`):** Natural Malaysian Malay; formal/community announcement tone.
   * **English (`en`):** Clear, natural English; official terms and names preserved.

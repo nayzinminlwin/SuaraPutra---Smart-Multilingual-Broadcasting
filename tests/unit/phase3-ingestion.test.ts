@@ -20,6 +20,7 @@ import { sha256Hex } from '../../src/shared/crypto.js';
 import type { NormalizedInboundMessage } from '../../src/whatsapp/adapter.js';
 
 const sourceJid = '120000000001@g.us';
+const additionalSourceJid = '120000000006@g.us';
 const destinationGroups = {
   ms: '120000000002@g.us',
   en: '120000000003@g.us',
@@ -39,7 +40,8 @@ describe('Phase 3 ingestion pipeline', () => {
 
   function createIngestor(
     aiProcessor?: AiProcessor,
-    botJidProvider?: () => string | string[] | null
+    botJidProvider?: () => string | string[] | null,
+    sourceGroupJids: readonly string[] = [sourceJid]
   ) {
     const directory = mkdtempSync(join(tmpdir(), 'suaraputra-phase3-'));
     const client = new DatabaseClient(join(directory, 'test.sqlite'));
@@ -55,7 +57,7 @@ describe('Phase 3 ingestion pipeline', () => {
       sources,
       announcements,
       ingestor: new MessageIngestor({
-        sourceGroupJid: sourceJid,
+        sourceGroupJids,
         botJid: botJidProvider ? undefined : '60100000000@s.whatsapp.net',
         botJidProvider,
         contextMaxMessages: 5,
@@ -95,6 +97,21 @@ describe('Phase 3 ingestion pipeline', () => {
     expect((await ingestor.enqueue(base)).accepted).toBe(true);
     expect((await ingestor.enqueue(base)).reason).toBe('duplicate');
     expect(sources.findById('does-not-exist')).toBeNull();
+  });
+
+  it('accepts messages from each configured source group and keeps context scoped by chat', async () => {
+    const { ingestor, sources } = createIngestor(undefined, undefined, [sourceJid, additionalSourceJid]);
+    const first = textMessage('primary-message');
+    const second = { ...textMessage('additional-message'), chatJid: additionalSourceJid };
+
+    const firstResult = await ingestor.enqueue(first);
+    const secondResult = await ingestor.enqueue(second);
+
+    expect(firstResult.accepted).toBe(true);
+    expect(secondResult.accepted).toBe(true);
+    expect(secondResult.context?.recent).toEqual([]);
+    expect(sources.findQuoted(sourceJid, first.messageId)).not.toBeNull();
+    expect(sources.findQuoted(additionalSourceJid, second.messageId)).not.toBeNull();
   });
 
   it('resolves the current bot JID dynamically for self-echo filtering', async () => {

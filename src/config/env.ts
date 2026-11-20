@@ -5,6 +5,18 @@ const WhatsAppGroupJidSchema = z
   .string()
   .regex(/^[0-9-]+@g\.us$/, 'Must be a valid WhatsApp group JID ending in @g.us');
 
+const WhatsAppSourceGroupJidsSchema = z.string().optional().superRefine((value, context) => {
+  if (!value) return;
+  for (const jid of value.split(',').map(item => item.trim()).filter(Boolean)) {
+    if (!/^[0-9-]+@g\.us$/.test(jid)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Invalid source group JID: ${jid}`
+      });
+    }
+  }
+});
+
 export const EnvConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error', 'fatal']).default('info'),
@@ -13,6 +25,7 @@ export const EnvConfigSchema = z.object({
   WHATSAPP_ADAPTER_MODE: z.enum(['mock', 'baileys']).default('mock'),
   WHATSAPP_AUTH_DIR: z.string().default('./private/whatsapp-auth'),
   WHATSAPP_SOURCE_GROUP_JID: WhatsAppGroupJidSchema,
+  WHATSAPP_SOURCE_GROUP_JIDS: WhatsAppSourceGroupJidsSchema,
   WHATSAPP_MALAY_GROUP_JID: WhatsAppGroupJidSchema,
   WHATSAPP_ENGLISH_GROUP_JID: WhatsAppGroupJidSchema,
   WHATSAPP_MANDARIN_GROUP_JID: WhatsAppGroupJidSchema,
