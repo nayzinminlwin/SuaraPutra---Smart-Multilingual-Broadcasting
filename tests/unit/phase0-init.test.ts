@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EnvConfigSchema, getSafeConfig, parseEnv } from '../../src/config/env.js';
-import { getGroupRouting } from '../../src/config/groups.js';
+import { getGroupRouting, getSourceGroupJids } from '../../src/config/groups.js';
 import { TARGET_LANGUAGES } from '../../src/config/languages.js';
 import { PIPELINE_CHECKPOINTS, PipelineTracer } from '../../src/observability/telemetry.js';
 
@@ -30,6 +30,18 @@ describe('Phase 0 initialization', () => {
     const routing = getGroupRouting(parseEnv(validEnvironment));
     expect(Object.keys(routing)).toEqual(['ms', 'en', 'zh-CN', 'ta']);
     expect(TARGET_LANGUAGES.map((language) => language.code)).toEqual(['ms', 'en', 'zh-CN', 'ta']);
+  });
+
+  it('keeps the legacy source JID active while adding configured source groups', () => {
+    const config = parseEnv({
+      ...validEnvironment,
+      WHATSAPP_SOURCE_GROUP_JIDS: '333-444@g.us,111-222@g.us'
+    });
+    expect(getSourceGroupJids(config)).toEqual(['111-222@g.us', '333-444@g.us']);
+    expect(EnvConfigSchema.safeParse({
+      ...validEnvironment,
+      WHATSAPP_SOURCE_GROUP_JIDS: 'not-a-group'
+    }).success).toBe(false);
   });
 
   it('records microsecond checkpoints and computes the E2E wall duration', () => {

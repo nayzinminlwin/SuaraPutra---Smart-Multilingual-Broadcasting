@@ -87,9 +87,18 @@ function readConfiguredJids(envContent: string): Map<string, string> {
   return configuredJids;
 }
 
-async function updateEnvFile(envPath: string, groups: ResolvedGroup[]): Promise<boolean> {
+function readConfiguredSourceJids(envContent: string, configuredJids: Map<string, string>): string[] {
+  const match = envContent.match(/^WHATSAPP_SOURCE_GROUP_JIDS=([^\r\n]*)$/m);
+  const configured = match?.[1]?.split(',').map(jid => jid.trim()).filter(Boolean) ?? [];
+  return [...new Set([configuredJids.get('WHATSAPP_SOURCE_GROUP_JID'), ...configured].filter(
+    (jid): jid is string => Boolean(jid)
+  ))];
+}
+
+async function updateEnvFile(envPath: string, groups: ResolvedGroup[], sourceJids: readonly string[]): Promise<boolean> {
   const original = await readFile(envPath, 'utf8');
   const values = new Map(groups.map(group => [group.envKey, group.jid]));
+  values.set('WHATSAPP_SOURCE_GROUP_JIDS', sourceJids.join(','));
   let updated = original;
 
   for (const [envKey, value] of values) {
@@ -118,6 +127,22 @@ async function updateEnvFile(envPath: string, groups: ResolvedGroup[]): Promise<
     await writeFile(envPath, updated, { encoding: 'utf8' });
     return false;
   }
+
+}
+
+async function resolveSourceInviteLinks(inviteLinks: readonly string[]): Promise<string[]> {
+  const resolved: string[] = [];
+  for (const inviteLink of inviteLinks) {
+    const inviteCode = extractInviteCode(inviteLink);
+    console.log('Resolving an additional source group...');
+    const metadata = await currentSocket.groupGetInviteInfo(inviteCode);
+    if (!metadata.id || !/^[0-9-]+@g\.us$/.test(metadata.id)) {
+      throw new Error('Baileys returned an invalid group JID for an additional source group');
+    }
+    console.log(`Resolved additional source: ${metadata.subject ?? '(unnamed group)'} -> ${metadata.id}`);
+    resolved.push(metadata.id);
+  }
+  return resolved;
 }
 
 async function verifyEnvWritable(envPath: string): Promise<void> {
@@ -169,31 +194,51 @@ async function main(): Promise<void> {
     console.log(`Using WhatsApp auth directory: ${authDir}`);
     console.log('The account must already be paired. This script does not join groups.');
     await verifyEnvWritable(envPath);
-    const configuredJids = readConfiguredJids(await readFile(envPath, 'utf8'));
+    const envContent = await readFile(envPath, 'utf8');
+    const configuredJids = readConfiguredJids(envContent);
+    const configuredSourceJids = readConfiguredSourceJids(envContent, configuredJids);
     currentSocket = await connect(authDir);
     const groups = await askForGroups(readline, configuredJids);
+    const primarySourceJid = groups.find(group => group.envKey === 'WHATSAPP_SOURCE_GROUP_JID')?.jid;
+    if (!primarySourceJid) throw new Error('The primary source group must be configured');
+    const currentAdditionalSources = configuredSourceJids.filter(jid => jid !== configuredJids.get('WHATSAPP_SOURCE_GROUP_JID'));
+    const additionalInput = (await readline.question(
+      'Enter additional source group invite links separated by commas (press Enter to keep current additional sources): '
+    )).trim();
+    const additionalSourceJids = additionalInput
+      ? await resolveSourceInviteLinks(additionalInput.split(',').map(link => link.trim()).filter(Boolean))
+      : currentAdditionalSources;
+    const sourceJids = [...new Set([primarySourceJid, ...additionalSourceJids])];
 
     const seenJids = new Set<string>();
-    const duplicate = groups.find(group => {
+    const duplicateGroup = groups.find(group => {
       if (seenJids.has(group.jid)) return true;
       seenJids.add(group.jid);
       return false;
     });
-    if (duplicate) {
-      throw new Error(`The ${duplicate.role} group uses a duplicate JID; each configured group must be distinct`);
+    const destinationJids = new Set(
+      groups.filter(group => group.envKey !== 'WHATSAPP_SOURCE_GROUP_JID').map(group => group.jid)
+    );
+    const duplicateSource = sourceJids.find(jid => destinationJids.has(jid));
+    if (duplicateGroup) {
+      throw new Error(`The ${duplicateGroup.role} group uses a duplicate JID; each configured group must be distinct`);
+    }
+    if (duplicateSource) {
+      throw new Error(`Source group ${duplicateSource} duplicates another configured group`);
     }
 
     console.log('\nResolved group mappings:');
     for (const group of groups) {
       console.log(`${group.envKey}=${group.jid}`);
     }
-    const confirmation = (await readline.question(`\nUpdate ${envPath} with these five JIDs? (yes/no): `)).trim().toLowerCase();
+    console.log(`WHATSAPP_SOURCE_GROUP_JIDS=${sourceJids.join(',')}`);
+    const confirmation = (await readline.question(`\nUpdate ${envPath} with these group mappings? (yes/no): `)).trim().toLowerCase();
     if (confirmation !== 'yes') {
       console.log('No changes made to .env.');
       return;
     }
 
-    const updatedAtomically = await updateEnvFile(envPath, groups);
+    const updatedAtomically = await updateEnvFile(envPath, groups, sourceJids);
     console.log(updatedAtomically
       ? `Updated ${envPath} atomically.`
       : `Updated ${envPath} in place.`);

@@ -353,7 +353,7 @@ Implement the sequential FIFO Ingestion Queue (`MAX_CONCURRENT_INGESTIONS = 1`) 
    * Implement an internal single-concurrency FIFO queue (`MAX_CONCURRENT_INGESTIONS = 1`) instrumented with `CP02_FIFO_WAIT` ($\mu\text{s}$):
      * Message $N+1$ (such as an `IMAGE_ONLY` message arriving at `13:34`) waits in the FIFO queue until Message $N$ (`TEXT` at `13:32` or `IMAGE_CAPTION` at `13:33`) finishes AI processing and queues its delivery jobs.
    * Instrument `CP03_GATE_CHECKS` ($\mu\text{s}$) with per-gate debug logs:
-     * Gate 1: Source Group JID match (`chatJid === WHATSAPP_SOURCE_GROUP_JID`).
+     * Gate 1: Source Group JID membership (`chatJid` belongs to the configured source-group JID set, including `WHATSAPP_SOURCE_GROUP_JID`).
      * Gate 2: Self-Echo / Loop prevention (`fromMe === false` and `senderJid !== botJid`).
      * Gate 3: Supported Message Kind (`TEXT`, `IMAGE_CAPTION`, `IMAGE_ONLY`).
      * Gate 4: Primary SQLite deduplication (`(chat_jid, message_id)`).
