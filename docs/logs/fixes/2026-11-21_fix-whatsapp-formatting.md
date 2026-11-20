@@ -95,7 +95,7 @@ processing uses the normalization.
 
 ## 8. Commit and Follow-up
 
-**Commit:** Pending
+**Commit:** `8bdfb77`
 **Related documentation:** [AI translation skill](../../../.github/skills/ai-translation-engine/SKILL.md)
 
 ---
@@ -110,4 +110,4 @@ formatting markers so ordinary multiplication, wildcard, incomplete, and
 escaped asterisk text remains unchanged. Added CRLF and edge-case tests.
 **Verification:** `npm test -- tests/unit/phase4-ai-and-validation.test.ts`
 (12 passed); `npm run typecheck` passed.
-**Commit:** Pending
+**Commit:** `8e9404a`

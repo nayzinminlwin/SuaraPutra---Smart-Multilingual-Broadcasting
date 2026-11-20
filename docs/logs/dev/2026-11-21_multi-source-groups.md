@@ -108,6 +108,6 @@ npm test
 
 ## 9. Commit and Documentation
 
-**Commit:** Pending
+**Commit:** `c51469a`
 **Related documentation:** [Architecture](../../architecture.md),
 [Decisions](../../DECISIONS.md)
