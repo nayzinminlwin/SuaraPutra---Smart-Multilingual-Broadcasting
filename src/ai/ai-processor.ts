@@ -13,6 +13,7 @@ import { TranslationValidator, type TranslationValidationResult } from '../valid
 import { PipelineTracer } from '../observability/telemetry.js';
 import type { AnnouncementRepository } from '../database/repositories/announcement.repo.js';
 import type { EventLogRepository } from '../database/repositories/event-log.repo.js';
+import { normalizeWhatsAppText } from './whatsapp-format.js';
 
 export interface AiProcessInput extends TranslationPromptInput {
   sourceText?: string;
@@ -195,7 +196,13 @@ export class AiProcessor {
     const candidate = typeof value === 'string' ? JSON.parse(value) as unknown : value;
     const parsed = TranslationResponseSchema.safeParse(candidate);
     if (!parsed.success) throw new Error(`Invalid AI response: ${parsed.error.message}`);
-    return parsed.data;
+    return {
+      ...parsed.data,
+      English: parsed.data.English === null ? null : normalizeWhatsAppText(parsed.data.English),
+      Malay: parsed.data.Malay === null ? null : normalizeWhatsAppText(parsed.data.Malay),
+      Tamil: parsed.data.Tamil === null ? null : normalizeWhatsAppText(parsed.data.Tamil),
+      Mandarin: parsed.data.Mandarin === null ? null : normalizeWhatsAppText(parsed.data.Mandarin)
+    };
   }
 
   private assertResponseContract(
