@@ -1,10 +1,11 @@
 # SuaraPutra: Architectural Remediation Execution Plan
 
-**Project:** SuaraPutra â€” Smart Multilingual Broadcasting
+**Project:** SuaraPutra -- Smart Multilingual Broadcasting
 **Document Path:** `docs/audits/remediation-plan.md`
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Created:** 24 November 2026
-**Based On:** [Architectural Audit â€” Executive Summary](./00-executive-summary.md)
+**Last Updated:** 25 November 2026
+**Based On:** [Architectural Audit -- Executive Summary](./00-executive-summary.md)
 **Executing Agent:** `gpt-6-luna`
 
 ---
@@ -15,13 +16,28 @@ This plan provides an ordered, phase-gated remediation of all **34 findings** (3
 
 ### 1.1 Guiding Principles
 
-1. **CRITICAL findings first** â€” fix memory leaks, race conditions, and drift risks before feature-level improvements.
-2. **Dependency-aware ordering** â€” DI refactoring (R2) must precede god-object decomposition (R3), database fixes (R4) before ingestion improvements (R6).
-3. **No feature additions** â€” this plan strictly remediates existing structural issues. No new user-facing features.
-4. **Test-first verification** â€” every phase includes specific verification criteria and test commands.
-5. **Incremental commits** â€” each phase produces a scoped, reviewable commit.
+1. **CRITICAL findings first** -- fix memory leaks, race conditions, and drift risks before feature-level improvements.
+2. **Dependency-aware ordering** -- DI refactoring (R2) must precede god-object decomposition (R3), database fixes (R4) before ingestion improvements (R6).
+3. **No feature additions** -- this plan strictly remediates existing structural issues. No new user-facing features.
+4. **Test-first verification** -- every phase includes specific verification criteria and test commands.
+5. **Incremental commits** -- each phase produces a scoped, reviewable commit.
 
-### 1.2 Audit Documents Reference
+### 1.2 Production Safety Constraints
+
+> **IMPORTANT -- This system is in active production.**
+> The following constraints are non-negotiable and apply to ALL phases:
+>
+> 1. **WhatsApp Auth Folder is UNTOUCHABLE.** The `private/whatsapp-auth` directory must NEVER be deleted, modified, corrupted, or disturbed in any way. Loss of auth state means re-pairing the device, which causes production downtime. Any code change that could risk touching this folder must be flagged and rejected.
+>
+> 2. **No destructive data operations on startup.** Database seeding, table drops, or destructive migrations must NEVER run automatically on application start. Such operations must only run when explicitly instructed by the developer (e.g., via a CLI flag like `--run-seed` or `--force-migrate-destructive`). The default startup path must be safe and preserve all existing data.
+>
+> 3. **No existing data deletion.** Remediation changes must not delete, truncate, or corrupt any existing production data (announcements, delivery jobs, translations, source messages, event logs). Retention pruning (Phase R4) only targets rows older than `DATA_RETENTION_DAYS` and only runs in the scheduled retention cycle -- never on startup.
+>
+> 4. **Service continuity.** If a refactoring phase requires service-disrupting changes (downtime exceeding 10 minutes) or puts stored data at risk, the executing agent MUST stop and escalate to the developer for discussion before proceeding. Document the risk in the phase's risk notes and await explicit approval.
+>
+> 5. **Additive migrations only.** New SQL migrations (e.g., `003_remediation.sql`) must be strictly additive: `CREATE INDEX IF NOT EXISTS`, `ALTER TABLE ADD COLUMN`, etc. Destructive operations like `DROP TABLE` must be gated behind an explicit developer-approved flag and must NOT run as part of the normal migration flow.
+
+### 1.3 Audit Documents Reference
 
 | # | Document | Findings |
 |---|----------|----------|
@@ -39,14 +55,14 @@ This plan provides an ordered, phase-gated remediation of all **34 findings** (3
 
 | Phase | Name | Severity Addressed | Est. Files Changed | Risk |
 |-------|------|--------------------|--------------------|------|
-| **R1** | Critical Foundation Fixes | 3 CRITICAL, 2 HIGH | 3â€“4 | High â€” touches `app.ts` bootstrap |
-| **R2** | Dependency Injection & Service Wiring | 2 HIGH, 3 MEDIUM | 4â€“6 | Medium â€” refactors composition root |
-| **R3** | God Object Decomposition | 2 HIGH | 5â€“8 | Medium â€” extracts from `queue.ts` and `message-ingestor.ts` |
-| **R4** | Database & Data Integrity | 1 CRITICAL, 2 HIGH, 3 MEDIUM | 6â€“8 | Medium â€” schema migration required |
-| **R5** | AI Pipeline Hardening | 2 HIGH, 4 MEDIUM | 4â€“5 | Low â€” isolated module |
-| **R6** | Ingestion Pipeline Improvements | 2 HIGH, 4 MEDIUM | 3â€“5 | Medium â€” touches queue logic |
-| **R7** | Observability, Testing & Security | 2 HIGH, 3 MEDIUM | 8â€“12 | Low â€” additive changes |
-| **R8** | Polish & Documentation | 2 MEDIUM, 6 LOW | 5â€“8 | Low â€” cosmetic/defensive |
+| **R1** | Critical Foundation Fixes | 3 CRITICAL, 2 HIGH | 3-4 | High -- touches `app.ts` bootstrap |
+| **R2** | Dependency Injection & Service Wiring | 2 HIGH, 3 MEDIUM | 4-6 | Medium -- refactors composition root |
+| **R3** | God Object Decomposition | 2 HIGH | 5-8 | Medium -- extracts from `queue.ts` and `message-ingestor.ts` |
+| **R4** | Database & Data Integrity | 1 CRITICAL, 2 HIGH, 3 MEDIUM | 6-8 | Medium -- additive migration required |
+| **R5** | AI Pipeline Hardening | 2 HIGH, 4 MEDIUM | 4-5 | Low -- isolated module |
+| **R6** | Ingestion Pipeline Improvements | 2 HIGH, 4 MEDIUM | 3-5 | Medium -- touches queue logic |
+| **R7** | Observability, Testing & Security | 2 HIGH, 3 MEDIUM | 8-12 | Low -- additive changes |
+| **R8** | Polish & Documentation | 2 MEDIUM, 6 LOW | 5-8 | Low -- cosmetic/defensive |
 
 ---
 
@@ -59,18 +75,18 @@ This plan provides an ordered, phase-gated remediation of all **34 findings** (3
 **Objective:** Eliminate the three CRITICAL findings and two tightly coupled HIGH-severity race conditions that compromise reliability and can cause memory leaks or data corruption.
 
 **Audit References:**
-- [01-service-wiring.md Â§ 1 â€” Constructor Side-Effects](./01-service-wiring.md#1-constructor-side-effects) ðŸ”´ CRITICAL
-- [01-service-wiring.md Â§ 3 â€” Unbounded Tracer Map](./01-service-wiring.md#3-unbounded-tracer-map) ðŸ”´ CRITICAL
-- [02-database.md Â§ 1 â€” Hardcoded Migration List](./02-database.md#1-hardcoded-migration-list) ðŸ”´ CRITICAL
-- [01-service-wiring.md Â§ 4 â€” Dispatch Loop Starts Before Connection](./01-service-wiring.md) ðŸŸ  HIGH
-- [04-delivery-queue.md Â§ 2 â€” Reconciliation Hardcodes 4 Languages](./04-delivery-queue.md) ðŸŸ  HIGH
+- [01-service-wiring.md, Finding 1 -- Constructor Side-Effects](./01-service-wiring.md#1-constructor-side-effects) [CRITICAL]
+- [01-service-wiring.md, Finding 3 -- Unbounded Tracer Map](./01-service-wiring.md#3-unbounded-tracer-map) [CRITICAL]
+- [02-database.md, Finding 1 -- Hardcoded Migration List](./02-database.md#1-hardcoded-migration-list) [CRITICAL]
+- [01-service-wiring.md, Finding 4 -- Dispatch Loop Starts Before Connection](./01-service-wiring.md) [HIGH]
+- [04-delivery-queue.md, Finding 2 -- Reconciliation Hardcodes 4 Languages](./04-delivery-queue.md) [HIGH]
 
 #### R1.1 Implementation Tasks
 
 1. **Refactor `SuaraPutraApplication` constructor (`src/app.ts`):**
    - Move all I/O out of the constructor: `migrate()`, `attach()`, `startDispatchLoop()`.
    - Constructor should only assign fields and store configuration.
-   - Create an `async start()` method that runs: migrations â†’ repository creation â†’ adapter attachment â†’ WhatsApp connection â†’ dispatch loop start (in that order).
+   - Create an `async start()` method that runs: migrations --> repository creation --> adapter attachment --> WhatsApp connection --> dispatch loop start (in that order).
    - Consider adding a static factory: `static async create(options): Promise<SuaraPutraApplication>`.
    - **This fixes the dispatch-before-connection race condition simultaneously**, as `startDispatchLoop()` will now run after `adapter.connect()`.
 
@@ -92,7 +108,7 @@ This plan provides an ordered, phase-gated remediation of all **34 findings** (3
 
 #### R1.2 Deliverables Checklist
 
-- [ ] `SuaraPutraApplication` constructor performs zero I/O â€” only field assignment.
+- [ ] `SuaraPutraApplication` constructor performs zero I/O -- only field assignment.
 - [ ] `start()` method runs migrations, wires services, connects WhatsApp, then starts dispatch loop (in order).
 - [ ] Dispatch loop never starts before `adapter.connect()` resolves.
 - [ ] Tracer `Map` evicts entries older than 5 minutes via periodic sweep.
@@ -115,7 +131,7 @@ npm run typecheck
 
 #### R1.4 Risk Notes
 
-- **High risk** â€” `app.ts` is the composition root; changing its initialization order affects the entire application.
+- **High risk** -- `app.ts` is the composition root; changing its initialization order affects the entire application.
 - **Migration auto-discovery** must be tested with both existing migrations to ensure ordering is preserved.
 - **Existing tests** that construct `SuaraPutraApplication` may need updates if they relied on constructor side-effects.
 - **Dependency:** None. This is the first phase and has no prerequisites.
@@ -127,10 +143,10 @@ npm run typecheck
 **Objective:** Introduce a lightweight dependency injection pattern so that individual services can be swapped in tests without constructing the entire application.
 
 **Audit References:**
-- [01-service-wiring.md Â§ 2 â€” No Dependency Injection](./01-service-wiring.md#2-no-dependency-injection) ðŸŸ  HIGH
-- [01-service-wiring.md Â§ 6 â€” `logSafeConfig` Receives Full Config](./01-service-wiring.md) ðŸŸ¡ MEDIUM
-- [01-service-wiring.md Â§ 7 â€” `BROADCAST_KILL_SWITCH` Is String Enum](./01-service-wiring.md) ðŸŸ¡ MEDIUM
-- [01-service-wiring.md Â§ 8 â€” `MAX_CONCURRENT_INGESTIONS` Hardcoded to 1](./01-service-wiring.md) ðŸŸ¡ MEDIUM
+- [01-service-wiring.md, Finding 2 -- No Dependency Injection](./01-service-wiring.md#2-no-dependency-injection) [HIGH]
+- [01-service-wiring.md, Finding 6 -- `logSafeConfig` Receives Full Config](./01-service-wiring.md) [MEDIUM]
+- [01-service-wiring.md, Finding 7 -- `BROADCAST_KILL_SWITCH` Is String Enum](./01-service-wiring.md) [MEDIUM]
+- [01-service-wiring.md, Finding 8 -- `MAX_CONCURRENT_INGESTIONS` Hardcoded to 1](./01-service-wiring.md) [MEDIUM]
 
 #### R2.1 Implementation Tasks
 
@@ -153,7 +169,7 @@ npm run typecheck
    - This enables test code to inject mocks for specific repositories.
 
 2. **Fix `logSafeConfig` to use `getSafeConfig()` (`src/app.ts`):**
-   - Change `logSafeConfig(this.logger, this.config)` â†’ `logSafeConfig(this.logger, getSafeConfig(this.config))`.
+   - Change `logSafeConfig(this.logger, this.config)` --> `logSafeConfig(this.logger, getSafeConfig(this.config))`.
 
 3. **Convert `BROADCAST_KILL_SWITCH` to boolean (`src/config/env.ts`):**
    - Replace `z.enum(['true', 'false']).default('false')` with `z.string().transform(v => v === 'true').default('false')`.
@@ -166,7 +182,7 @@ npm run typecheck
 
 - [ ] `ApplicationDependencies` interface defined and accepted by the application constructor/start.
 - [ ] Tests can construct `SuaraPutraApplication` with injected mock repositories.
-- [ ] `logSafeConfig` uses `getSafeConfig()` output â€” `AI_API_KEY` never reaches the logger's data path.
+- [ ] `logSafeConfig` uses `getSafeConfig()` output -- `AI_API_KEY` never reaches the logger's data path.
 - [ ] `BROADCAST_KILL_SWITCH` is a boolean in config and all call sites.
 - [ ] `MAX_CONCURRENT_INGESTIONS` constraint documented or field removed.
 - [ ] All existing tests pass: `npm test`.
@@ -178,12 +194,12 @@ npm test
 npm run typecheck
 ```
 
-- Write a minimal test that constructs the app with a mock `SourceMessageRepository` injected â€” verify the mock is used instead of the default.
+- Write a minimal test that constructs the app with a mock `SourceMessageRepository` injected -- verify the mock is used instead of the default.
 - Verify `typeof config.BROADCAST_KILL_SWITCH === 'boolean'` in a unit test.
 
 #### R2.4 Risk Notes
 
-- **Medium risk** â€” the DI interface must be backward-compatible with existing tests that don't pass dependencies.
+- **Medium risk** -- the DI interface must be backward-compatible with existing tests that don't pass dependencies.
 - **`BROADCAST_KILL_SWITCH` type change** may break any code comparing it as a string.
 - **Dependency:** Requires R1 (constructor refactor) to be completed first.
 
@@ -191,11 +207,11 @@ npm run typecheck
 
 ### PHASE R3: God Object Decomposition
 
-**Objective:** Break up the two largest god objects â€” `DeliveryQueue` (416 lines, 6 responsibilities) and `MessageIngestor` (483 lines) â€” into focused, single-responsibility classes.
+**Objective:** Break up the two largest god objects -- `DeliveryQueue` (416 lines, 6 responsibilities) and `MessageIngestor` (483 lines) -- into focused, single-responsibility classes.
 
 **Audit References:**
-- [04-delivery-queue.md Â§ 1 â€” `DeliveryQueue` God Object](./04-delivery-queue.md#1-god-object) ðŸŸ  HIGH
-- [05-ingestion-dataflow.md Â§ 1 â€” `message-ingestor.ts` Monolith](./05-ingestion-dataflow.md) ðŸŸ  HIGH
+- [04-delivery-queue.md, Finding 1 -- `DeliveryQueue` God Object](./04-delivery-queue.md#1-god-object) [HIGH]
+- [05-ingestion-dataflow.md, Finding 1 -- `message-ingestor.ts` Monolith](./05-ingestion-dataflow.md) [HIGH]
 
 #### R3.1 Implementation Tasks
 
@@ -224,10 +240,10 @@ npm run typecheck
 
 #### R3.2 Deliverables Checklist
 
-- [ ] `DeliveryQueue` reduced to â‰¤200 lines â€” CRUD and claim/release only.
+- [ ] `DeliveryQueue` reduced to <=200 lines -- CRUD and claim/release only.
 - [ ] `AnnouncementReconciler`, `DeliveryEventLogger`, `DeliveryAttemptTracker` extracted as standalone classes.
 - [ ] `IngestionGatekeeper` extracted with the 5 gate checks.
-- [ ] `MessageIngestor` reduced to â‰¤250 lines â€” orchestration only.
+- [ ] `MessageIngestor` reduced to <=250 lines -- orchestration only.
 - [ ] All new classes are individually unit-testable with injected dependencies.
 - [ ] All existing tests pass with no behavioral changes: `npm test`.
 
@@ -243,8 +259,8 @@ npm run typecheck
 
 #### R3.4 Risk Notes
 
-- **Medium risk** â€” extraction refactoring can introduce subtle bugs in method call ordering or state management.
-- **Must preserve all existing behavior** â€” these are purely structural refactors with zero behavioral changes.
+- **Medium risk** -- extraction refactoring can introduce subtle bugs in method call ordering or state management.
+- **Must preserve all existing behavior** -- these are purely structural refactors with zero behavioral changes.
 - **Dependency:** Requires R2 (DI pattern) so extracted classes can be wired through the container.
 
 ---
@@ -253,52 +269,65 @@ npm run typecheck
 
 **Objective:** Fix database schema gaps, add missing indexes, implement retention policies for unbounded tables, and improve query efficiency.
 
+> **PRODUCTION SAFETY NOTICE:**
+> This phase involves database schema changes on a live production system. All changes MUST follow the production safety constraints defined in Section 1.2:
+> - Migrations are **strictly additive** (`CREATE INDEX IF NOT EXISTS`, `ALTER TABLE ADD COLUMN`).
+> - **No table drops** run automatically. The `group_config` table (if unused) will be documented with a deprecation comment but NOT dropped unless the developer explicitly approves and schedules downtime.
+> - **No data deletion on startup.** Retention pruning runs ONLY in the scheduled `runRetention()` cycle, never during migration or initialization.
+> - A **full database backup** is created before any migration runs.
+> - The `private/whatsapp-auth` folder is completely out of scope and must NOT be referenced, accessed, or modified by any database operation.
+> - If any task in this phase risks data loss or requires downtime exceeding 10 minutes, the executing agent MUST stop and escalate to the developer.
+
 **Audit References:**
-- [02-database.md Â§ 2 â€” No Down Migrations](./02-database.md) ðŸŸ  HIGH
-- [02-database.md Â§ 4 â€” No Index on `target_group_jid`](./02-database.md) ðŸŸ  HIGH
-- [02-database.md Â§ 6 â€” `event_logs` No Retention Policy](./02-database.md) ðŸŸ  HIGH
-- [02-database.md Â§ 3 â€” `SELECT *` Used Everywhere](./02-database.md) ðŸŸ¡ MEDIUM
-- [02-database.md Â§ 5 â€” Insert-Then-Read Pattern](./02-database.md) ðŸŸ¡ MEDIUM
-- [02-database.md Â§ 7 â€” Dead `group_config` Table](./02-database.md) ðŸŸ¡ MEDIUM
-- [02-database.md Â§ 8 â€” Proxy-Based Instrumentation](./02-database.md) ðŸŸ¡ MEDIUM
-- [02-database.md Â§ 10 â€” `translations` No Retention](./02-database.md) ðŸŸ¡ MEDIUM
-- [02-database.md Â§ 9 â€” `evaluation_score` Precision](./02-database.md) ðŸŸ¢ LOW
+- [02-database.md, Finding 2 -- No Down Migrations](./02-database.md) [HIGH]
+- [02-database.md, Finding 4 -- No Index on `target_group_jid`](./02-database.md) [HIGH]
+- [02-database.md, Finding 6 -- `event_logs` No Retention Policy](./02-database.md) [HIGH]
+- [02-database.md, Finding 3 -- `SELECT *` Used Everywhere](./02-database.md) [MEDIUM]
+- [02-database.md, Finding 5 -- Insert-Then-Read Pattern](./02-database.md) [MEDIUM]
+- [02-database.md, Finding 7 -- Dead `group_config` Table](./02-database.md) [MEDIUM]
+- [02-database.md, Finding 8 -- Proxy-Based Instrumentation](./02-database.md) [MEDIUM]
+- [02-database.md, Finding 10 -- `translations` No Retention](./02-database.md) [MEDIUM]
+- [02-database.md, Finding 9 -- `evaluation_score` Precision](./02-database.md) [LOW]
 
 #### R4.1 Implementation Tasks
 
 1. **Create migration `003_remediation.sql` (`src/database/migrations/003_remediation.sql`):**
-   - Add composite index for the poll query:
+   - This migration must be **strictly additive** -- no destructive operations:
      ```sql
+     -- Additive index for poll query performance
      CREATE INDEX IF NOT EXISTS idx_delivery_jobs_group_status
        ON delivery_jobs (target_group_jid, status, source_timestamp_ms, announcement_seq, language_order);
      ```
-   - Drop the unused `group_config` table (or add a comment documenting why it exists if kept):
+   - The `group_config` table will NOT be dropped. Instead, add a code comment in the migration file:
      ```sql
-     DROP TABLE IF EXISTS group_config;
+     -- NOTE: group_config table is currently unused (groups configured via env vars).
+     -- Retained for potential future use. Discuss with developer before removal.
      ```
 
 2. **Add `event_logs` retention to `HealthMonitor.runRetention()` (`src/observability/health.ts`):**
-   - Delete event logs older than `DATA_RETENTION_DAYS`:
+   - Delete event logs older than `DATA_RETENTION_DAYS` -- runs ONLY in scheduled retention cycle, never on startup:
      ```sql
      DELETE FROM event_logs WHERE created_at < datetime('now', '-' || ? || ' days');
      ```
-   - Add announcement/translation pruning (cascade-deletes translations and delivery jobs):
+   - Add announcement/translation pruning (cascade-deletes translations and delivery jobs) for terminal announcements only:
      ```sql
      DELETE FROM announcements WHERE status IN ('completed', 'failed', 'ignored')
        AND created_at < datetime('now', '-' || ? || ' days');
      ```
+   - **Safeguard:** Retention must NOT touch active announcements (`processing`, `queued`, `held_validation_failed`, `partial_failure`).
 
 3. **Replace `SELECT *` with explicit column lists in hot-path queries:**
-   - `delivery-job.repo.ts` â†’ `pollNext()`: list only the columns needed for dispatch.
-   - `source-message.repo.ts` â†’ sliding window query: list only columns needed for context assembly.
+   - `delivery-job.repo.ts` --> `pollNext()`: list only the columns needed for dispatch.
+   - `source-message.repo.ts` --> sliding window query: list only columns needed for context assembly.
    - Other repositories: enumerate columns in `findById()` methods.
 
 4. **Use `RETURNING` clause for insert-then-read pattern:**
    - Update `announcement.repo.ts`, `source-message.repo.ts`, and `delivery-job.repo.ts` to use `INSERT ... RETURNING *` instead of insert + `findById()`.
-   - Verify `better-sqlite3` version supports `RETURNING` (requires SQLite â‰¥ 3.35).
+   - Verify `better-sqlite3` version supports `RETURNING` (requires SQLite >= 3.35).
 
 5. **Add pre-migration database backup (`src/database/migrator.ts`):**
    - Before running any pending migrations, copy the `.sqlite` file to `{filename}.backup-{timestamp}.sqlite`.
+   - Log the backup path so it can be located if rollback is needed.
    - This provides rollback capability without formal down migrations.
 
 6. **Conditionally skip Proxy instrumentation in production (`src/database/client.ts`):**
@@ -307,17 +336,18 @@ npm run typecheck
 
 #### R4.2 Deliverables Checklist
 
-- [ ] `003_remediation.sql` migration created and auto-discovered by the migrator.
+- [ ] `003_remediation.sql` migration created -- strictly additive, auto-discovered by the migrator.
 - [ ] `idx_delivery_jobs_group_status` index exists after migration.
-- [ ] `group_config` table dropped (or documented).
-- [ ] `event_logs` pruned by `runRetention()` based on `DATA_RETENTION_DAYS`.
-- [ ] `announcements` pruned with cascade to `translations` and `delivery_jobs`.
+- [ ] `group_config` table documented (NOT dropped) with deprecation comment.
+- [ ] `event_logs` pruned by `runRetention()` based on `DATA_RETENTION_DAYS` -- retention cycle only, never on startup.
+- [ ] Terminal `announcements` pruned with cascade to `translations` and `delivery_jobs` -- active announcements untouched.
 - [ ] `SELECT *` replaced with explicit columns in `pollNext()` and `findById()` methods.
 - [ ] `INSERT ... RETURNING` used instead of insert + select pattern (where supported).
-- [ ] Database backup created before migrations run.
+- [ ] Database backup created automatically before migrations run, with logged path.
 - [ ] Proxy instrumentation skipped in production (`LOG_LEVEL !== 'debug'`).
+- [ ] `private/whatsapp-auth` folder confirmed untouched -- zero references in migration or database code.
 - [ ] All existing tests pass: `npm test`.
-- [ ] New tests verify: retention deletes old event_logs, new index improves `EXPLAIN QUERY PLAN` for `pollNext()`.
+- [ ] New tests verify: retention deletes old event_logs, new index improves `EXPLAIN QUERY PLAN` for `pollNext()`, backup file created.
 
 #### R4.3 Verification
 
@@ -329,12 +359,14 @@ npm run typecheck
 - Run `EXPLAIN QUERY PLAN` on the `pollNext()` query to verify the new index is used.
 - Insert 1000 event_log rows with old timestamps, run `runRetention()`, verify they are deleted.
 - Verify the backup file exists after running migrations.
+- Verify: `grep -rn "whatsapp-auth" src/database/` returns zero results.
 
 #### R4.4 Risk Notes
 
-- **Medium risk** â€” schema migrations are irreversible (hence the backup step).
-- **`group_config` drop** â€” verify no code references this table before dropping.
-- **`RETURNING` clause** â€” verify `better-sqlite3@13.0.3` bundles SQLite â‰¥ 3.35.
+- **Medium risk** -- schema migrations on a live production database. Mitigated by: additive-only SQL, pre-migration backup, and `IF NOT EXISTS` guards.
+- **Retention pruning** must be thoroughly tested to ensure it only deletes rows older than `DATA_RETENTION_DAYS` and only targets terminal-state announcements.
+- **`RETURNING` clause** -- verify `better-sqlite3@13.0.3` bundles SQLite >= 3.35.
+- **ESCALATION REQUIRED** if any task requires downtime or risks data loss -- stop and discuss with the developer.
 - **Dependency:** Requires R1 (migration auto-discovery) to be completed so `003_remediation.sql` is picked up automatically.
 
 ---
@@ -344,14 +376,14 @@ npm run typecheck
 **Objective:** Eliminate duplicate schema definitions, improve retry behavior, add token tracking, and mitigate prompt injection risks.
 
 **Audit References:**
-- [03-ai-pipeline.md Â§ 1 â€” `IModelProvider.generate()` Returns `unknown`](./03-ai-pipeline.md) ðŸŸ  HIGH
-- [03-ai-pipeline.md Â§ 3 â€” Duplicate Response Schema (Zod + JSON Schema)](./03-ai-pipeline.md) ðŸŸ  HIGH
-- [03-ai-pipeline.md Â§ 2 â€” Hardcoded Retry Count](./03-ai-pipeline.md) ðŸŸ¡ MEDIUM
-- [03-ai-pipeline.md Â§ 4 â€” Validation Only Retries Once](./03-ai-pipeline.md) ðŸŸ¡ MEDIUM
-- [03-ai-pipeline.md Â§ 5 â€” Prompt Injection Risk](./03-ai-pipeline.md) ðŸŸ¡ MEDIUM
-- [03-ai-pipeline.md Â§ 6 â€” Normalize Input Not Applied](./03-ai-pipeline.md) ðŸŸ¡ MEDIUM
-- [03-ai-pipeline.md Â§ 7 â€” No Token/Cost Tracking](./03-ai-pipeline.md) ðŸŸ¡ MEDIUM
-- [06-observability-testing-security.md Â§ 7 â€” No Rate Limiting on AI](./06-observability-testing-security.md) ðŸŸ¡ MEDIUM
+- [03-ai-pipeline.md, Finding 1 -- `IModelProvider.generate()` Returns `unknown`](./03-ai-pipeline.md) [HIGH]
+- [03-ai-pipeline.md, Finding 3 -- Duplicate Response Schema (Zod + JSON Schema)](./03-ai-pipeline.md) [HIGH]
+- [03-ai-pipeline.md, Finding 2 -- Hardcoded Retry Count](./03-ai-pipeline.md) [MEDIUM]
+- [03-ai-pipeline.md, Finding 4 -- Validation Only Retries Once](./03-ai-pipeline.md) [MEDIUM]
+- [03-ai-pipeline.md, Finding 5 -- Prompt Injection Risk](./03-ai-pipeline.md) [MEDIUM]
+- [03-ai-pipeline.md, Finding 6 -- Normalize Input Not Applied](./03-ai-pipeline.md) [MEDIUM]
+- [03-ai-pipeline.md, Finding 7 -- No Token/Cost Tracking](./03-ai-pipeline.md) [MEDIUM]
+- [06-observability-testing-security.md, Finding 7 -- No Rate Limiting on AI](./06-observability-testing-security.md) [MEDIUM]
 
 #### R5.1 Implementation Tasks
 
@@ -414,14 +446,14 @@ npm run typecheck
 ```
 
 - Verify the derived JSON Schema output matches the previously hardcoded schema structure.
-- Simulate 15 rapid AI requests and verify the rate limiter delays requests 11â€“15.
+- Simulate 15 rapid AI requests and verify the rate limiter delays requests 11-15.
 - Verify token counts appear in logs after an AI call.
 
 #### R5.4 Risk Notes
 
-- **Low risk** â€” the AI module is well-isolated from other subsystems.
-- **`zod-to-json-schema`** â€” verify compatibility with the project's Zod version.
-- **Rate limiter** â€” ensure it doesn't starve normal ingestion under steady-state load.
+- **Low risk** -- the AI module is well-isolated from other subsystems.
+- **`zod-to-json-schema`** -- verify compatibility with the project's Zod version.
+- **Rate limiter** -- ensure it doesn't starve normal ingestion under steady-state load.
 - **Dependency:** None. Can run in parallel with R3 or R4 if needed.
 
 ---
@@ -431,14 +463,14 @@ npm run typecheck
 **Objective:** Fix data integrity gaps, add backpressure, improve queue performance, and decouple ingestion from delivery.
 
 **Audit References:**
-- [05-ingestion-dataflow.md Â§ 2 â€” Ingestion-to-Delivery Tight Coupling](./05-ingestion-dataflow.md) ðŸŸ  HIGH
-- [04-delivery-queue.md Â§ 5 â€” `uncertain` State No Resolution](./04-delivery-queue.md) ðŸŸ  HIGH
-- [05-ingestion-dataflow.md Â§ 3 â€” FIFO Queue Uses Array Sort](./05-ingestion-dataflow.md) ðŸŸ¡ MEDIUM
-- [05-ingestion-dataflow.md Â§ 4 â€” `message.media.buffer` Mutated In-Place](./05-ingestion-dataflow.md) ðŸŸ¡ MEDIUM
-- [05-ingestion-dataflow.md Â§ 5 â€” IMAGE_ONLY Recovery Silently Fails](./05-ingestion-dataflow.md) ðŸŸ¡ MEDIUM
-- [05-ingestion-dataflow.md Â§ 6 â€” Dedup Only Checks Message ID](./05-ingestion-dataflow.md) ðŸŸ¡ MEDIUM
-- [05-ingestion-dataflow.md Â§ 9 â€” No Backpressure on Ingestion Queue](./05-ingestion-dataflow.md) ðŸŸ¡ MEDIUM
-- [05-ingestion-dataflow.md Â§ 8 â€” Event Normalizer Error Class](./05-ingestion-dataflow.md) ðŸŸ¡ MEDIUM
+- [05-ingestion-dataflow.md, Finding 2 -- Ingestion-to-Delivery Tight Coupling](./05-ingestion-dataflow.md) [HIGH]
+- [04-delivery-queue.md, Finding 5 -- `uncertain` State No Resolution](./04-delivery-queue.md) [HIGH]
+- [05-ingestion-dataflow.md, Finding 3 -- FIFO Queue Uses Array Sort](./05-ingestion-dataflow.md) [MEDIUM]
+- [05-ingestion-dataflow.md, Finding 4 -- `message.media.buffer` Mutated In-Place](./05-ingestion-dataflow.md) [MEDIUM]
+- [05-ingestion-dataflow.md, Finding 5 -- IMAGE_ONLY Recovery Silently Fails](./05-ingestion-dataflow.md) [MEDIUM]
+- [05-ingestion-dataflow.md, Finding 6 -- Dedup Only Checks Message ID](./05-ingestion-dataflow.md) [MEDIUM]
+- [05-ingestion-dataflow.md, Finding 9 -- No Backpressure on Ingestion Queue](./05-ingestion-dataflow.md) [MEDIUM]
+- [05-ingestion-dataflow.md, Finding 8 -- Event Normalizer Error Class](./05-ingestion-dataflow.md) [MEDIUM]
 
 #### R6.1 Implementation Tasks
 
@@ -455,7 +487,7 @@ npm run typecheck
 
 3. **Replace array sort with insertion sort (`src/ingestion/message-ingestor.ts`):**
    - Instead of sorting the entire `pendingQueue` on every drain iteration, insert new items in sorted position using binary search.
-   - This reduces drain loop from O(nÂ² log n) to O(nÂ²) in the worst case, or O(n log n) for inserts.
+   - This reduces drain loop from O(n^2 log n) to O(n^2) in the worst case, or O(n log n) for inserts.
 
 4. **Stop mutating input messages (`src/ingestion/message-ingestor.ts`):**
    - Instead of `message.media.buffer = null`, create a new object with the buffer field set to null.
@@ -483,7 +515,7 @@ npm run typecheck
 - [ ] `onAnnouncementReady` callback replaces direct delivery queue calls.
 - [ ] `resolveUncertain()` method exists and is callable from admin/CLI.
 - [ ] Ingestion queue uses sorted insertion instead of full re-sort.
-- [ ] Input `NormalizedInboundMessage` is never mutated â€” a new object is created.
+- [ ] Input `NormalizedInboundMessage` is never mutated -- a new object is created.
 - [ ] IMAGE_ONLY recovery creates passthrough delivery jobs instead of `held_validation_failed`.
 - [ ] Content-hash dedup rejects same-content messages within 60 seconds.
 - [ ] Ingestion queue has a configurable max size with backpressure.
@@ -498,13 +530,13 @@ npm run typecheck
 ```
 
 - Verify ingestion tests pass without any `src/delivery/` imports in `message-ingestor.ts`.
-- Send two messages with different IDs but same content within 10 seconds â€” second should be rejected.
-- Fill the ingestion queue to `MAX_INGESTION_QUEUE_SIZE + 1` â€” verify the last message is rejected with a warning.
+- Send two messages with different IDs but same content within 10 seconds -- second should be rejected.
+- Fill the ingestion queue to `MAX_INGESTION_QUEUE_SIZE + 1` -- verify the last message is rejected with a warning.
 
 #### R6.4 Risk Notes
 
-- **Medium risk** â€” decoupling ingestion from delivery changes the data flow boundary.
-- **IMAGE_ONLY recovery fix** â€” must handle the case where media files no longer exist on disk.
+- **Medium risk** -- decoupling ingestion from delivery changes the data flow boundary.
+- **IMAGE_ONLY recovery fix** -- must handle the case where media files no longer exist on disk.
 - **Dependency:** Requires R3 (god object decomposition) for clean integration of extracted classes.
 
 ---
@@ -514,12 +546,12 @@ npm run typecheck
 **Objective:** Replace all `console.*` calls with structured Pino logging, expand health checks, scrub PII from event logs, and fill critical test coverage gaps.
 
 **Audit References:**
-- [06-observability-testing-security.md Â§ 1 â€” `console.*` Instead of Logger](./06-observability-testing-security.md) ðŸŸ  HIGH
-- [06-observability-testing-security.md Â§ 4 â€” PII Not Scrubbed From Event Logs](./06-observability-testing-security.md) ðŸŸ  HIGH
-- [06-observability-testing-security.md Â§ 5 â€” Test Coverage Gaps](./06-observability-testing-security.md) ðŸŸ  HIGH
-- [06-observability-testing-security.md Â§ 2 â€” Health Check Missing AI/DB/Disk](./06-observability-testing-security.md) ðŸŸ¡ MEDIUM
-- [06-observability-testing-security.md Â§ 3 â€” No Structured Metrics Export](./06-observability-testing-security.md) ðŸŸ¡ MEDIUM
-- [06-observability-testing-security.md Â§ 10 â€” Shutdown Doesn't Wait for Ingestion](./06-observability-testing-security.md) ðŸŸ¡ MEDIUM
+- [06-observability-testing-security.md, Finding 1 -- `console.*` Instead of Logger](./06-observability-testing-security.md) [HIGH]
+- [06-observability-testing-security.md, Finding 4 -- PII Not Scrubbed From Event Logs](./06-observability-testing-security.md) [HIGH]
+- [06-observability-testing-security.md, Finding 5 -- Test Coverage Gaps](./06-observability-testing-security.md) [HIGH]
+- [06-observability-testing-security.md, Finding 2 -- Health Check Missing AI/DB/Disk](./06-observability-testing-security.md) [MEDIUM]
+- [06-observability-testing-security.md, Finding 3 -- No Structured Metrics Export](./06-observability-testing-security.md) [MEDIUM]
+- [06-observability-testing-security.md, Finding 10 -- Shutdown Doesn't Wait for Ingestion](./06-observability-testing-security.md) [MEDIUM]
 
 #### R7.1 Implementation Tasks
 
@@ -529,7 +561,7 @@ npm run typecheck
    - **`src/delivery/dispatcher.ts`:** Replace `console.error` with `logger.error()`.
    - **`src/delivery/queue.ts`:** Replace `console.error` with `logger.error()`.
    - **`src/app.ts`:** Replace `console.log` in shutdown handler with `logger.info()`.
-   - **Any other files** using `console.*` â€” search with: `grep -rn "console\.\(log\|warn\|error\|info\)" src/`.
+   - **Any other files** using `console.*` -- search with: `grep -rn "console\.\(log\|warn\|error\|info\)" src/`.
    - After completion, add an ESLint rule `no-console: error` to prevent future regressions.
 
 2. **Add PII scrubbing to event logs (`src/database/repositories/event-log.repo.ts`):**
@@ -560,11 +592,11 @@ npm run typecheck
 
 6. **Fill critical test coverage gaps (`tests/`):**
    - Add unit tests for:
-     - `recoverInterrupted()` â€” full recovery flow with multiple announcement states.
-     - `reconcileAnnouncementStatus()` â€” verify terminal state detection for all combinations.
-     - `recoverOrphanedJobs()` â€” verify lease expiry transitions to `uncertain`.
+     - `recoverInterrupted()` -- full recovery flow with multiple announcement states.
+     - `reconcileAnnouncementStatus()` -- verify terminal state detection for all combinations.
+     - `recoverOrphanedJobs()` -- verify lease expiry transitions to `uncertain`.
    - Add integration tests for:
-     - Shutdown â†’ recovery â†’ restart cycle (verify interrupted announcements are recovered).
+     - Shutdown --> recovery --> restart cycle (verify interrupted announcements are recovered).
      - Concurrent burst ingestion (inject 10 messages rapidly, verify FIFO ordering preserved).
 
 #### R7.2 Deliverables Checklist
@@ -577,7 +609,7 @@ npm run typecheck
 - [ ] Periodic metrics logged at INFO level every 60 seconds.
 - [ ] `stop()` calls `ingestor.drainAndStop()` before disconnecting.
 - [ ] New tests for `recoverInterrupted()`, `reconcileAnnouncementStatus()`, `recoverOrphanedJobs()`.
-- [ ] New integration test for shutdown â†’ recovery â†’ restart cycle.
+- [ ] New integration test for shutdown --> recovery --> restart cycle.
 - [ ] All tests pass: `npm test`.
 
 #### R7.3 Verification
@@ -588,15 +620,15 @@ npm run typecheck
 grep -rn "console\.\(log\|warn\|error\|info\)" src/   # Should return 0 results
 ```
 
-- Run the full test suite and verify â‰¥20% more test cases than before this phase.
-- Trigger a graceful shutdown during an active AI call â€” verify the call completes before the database closes.
-- Insert event log entries with fake PII â€” verify the stored JSON has masked/truncated values.
+- Run the full test suite and verify >=20% more test cases than before this phase.
+- Trigger a graceful shutdown during an active AI call -- verify the call completes before the database closes.
+- Insert event log entries with fake PII -- verify the stored JSON has masked/truncated values.
 
 #### R7.4 Risk Notes
 
-- **Low risk** â€” these are mostly additive changes.
+- **Low risk** -- these are mostly additive changes.
 - **Logger injection** into `PipelineTracer` requires updating all call sites that create tracers.
-- **Test additions** may expose previously hidden bugs â€” these should be logged but not block the phase.
+- **Test additions** may expose previously hidden bugs -- these should be logged but not block the phase.
 - **Dependency:** Requires R3 (decomposition) for clean logger injection into extracted classes.
 
 ---
@@ -606,28 +638,28 @@ grep -rn "console\.\(log\|warn\|error\|info\)" src/   # Should return 0 results
 **Objective:** Address remaining LOW-severity findings, improve error classification, add defensive documentation, and handle edge-case cleanup.
 
 **Audit References:**
-- [06-observability-testing-security.md Â§ 8 â€” Incomplete Error Hierarchy](./06-observability-testing-security.md) ðŸŸ¡ MEDIUM
-- [01-service-wiring.md Â§ 5 â€” LANGUAGE_ORDER Duplicated](./01-service-wiring.md) ðŸŸ¡ MEDIUM
-- [04-delivery-queue.md Â§ 4 â€” No Dead Letter Queue](./04-delivery-queue.md) ðŸŸ  HIGH
-- [04-delivery-queue.md Â§ 6 â€” Media Cache No Size Limit](./04-delivery-queue.md) ðŸŸ¡ MEDIUM
-- [04-delivery-queue.md Â§ 7 â€” Empty Caption Throws Permanent](./04-delivery-queue.md) ðŸŸ¡ MEDIUM
-- [04-delivery-queue.md Â§ 8 â€” Reconnection No Max Attempts](./04-delivery-queue.md) ðŸŸ¡ MEDIUM
-- [01-service-wiring.md Â§ 9 â€” No `process.exit()` After Shutdown](./01-service-wiring.md) ðŸŸ¢ LOW
-- [01-service-wiring.md Â§ 10 â€” Recovery Interval Naming](./01-service-wiring.md) ðŸŸ¢ LOW
-- [03-ai-pipeline.md Â§ 8 â€” `assertResponseContract` Dead Code](./03-ai-pipeline.md) ðŸŸ¢ LOW
-- [03-ai-pipeline.md Â§ 9 â€” `MockModelProvider` Memory](./03-ai-pipeline.md) ðŸŸ¢ LOW
-- [04-delivery-queue.md Â§ 9 â€” RetryPolicy Off-by-One Documentation](./04-delivery-queue.md) ðŸŸ¢ LOW
-- [04-delivery-queue.md Â§ 10 â€” `stopAndDrain` One-Way Flag](./04-delivery-queue.md) ðŸŸ¢ LOW
-- [05-ingestion-dataflow.md Â§ 7 â€” `MediaStore.save()` Sync Verification](./05-ingestion-dataflow.md) ðŸŸ¢ LOW
-- [06-observability-testing-security.md Â§ 6 â€” `.env.example` Fake Values](./06-observability-testing-security.md) ðŸŸ¢ LOW
-- [06-observability-testing-security.md Â§ 9 â€” Truncated SHA-256 Documentation](./06-observability-testing-security.md) ðŸŸ¢ LOW
+- [06-observability-testing-security.md, Finding 8 -- Incomplete Error Hierarchy](./06-observability-testing-security.md) [MEDIUM]
+- [01-service-wiring.md, Finding 5 -- LANGUAGE_ORDER Duplicated](./01-service-wiring.md) [MEDIUM]
+- [04-delivery-queue.md, Finding 4 -- No Dead Letter Queue](./04-delivery-queue.md) [HIGH]
+- [04-delivery-queue.md, Finding 6 -- Media Cache No Size Limit](./04-delivery-queue.md) [MEDIUM]
+- [04-delivery-queue.md, Finding 7 -- Empty Caption Throws Permanent](./04-delivery-queue.md) [MEDIUM]
+- [04-delivery-queue.md, Finding 8 -- Reconnection No Max Attempts](./04-delivery-queue.md) [MEDIUM]
+- [01-service-wiring.md, Finding 9 -- No `process.exit()` After Shutdown](./01-service-wiring.md) [LOW]
+- [01-service-wiring.md, Finding 10 -- Recovery Interval Naming](./01-service-wiring.md) [LOW]
+- [03-ai-pipeline.md, Finding 8 -- `assertResponseContract` Dead Code](./03-ai-pipeline.md) [LOW]
+- [03-ai-pipeline.md, Finding 9 -- `MockModelProvider` Memory](./03-ai-pipeline.md) [LOW]
+- [04-delivery-queue.md, Finding 9 -- RetryPolicy Off-by-One Documentation](./04-delivery-queue.md) [LOW]
+- [04-delivery-queue.md, Finding 10 -- `stopAndDrain` One-Way Flag](./04-delivery-queue.md) [LOW]
+- [05-ingestion-dataflow.md, Finding 7 -- `MediaStore.save()` Sync Verification](./05-ingestion-dataflow.md) [LOW]
+- [06-observability-testing-security.md, Finding 6 -- `.env.example` Fake Values](./06-observability-testing-security.md) [LOW]
+- [06-observability-testing-security.md, Finding 9 -- Truncated SHA-256 Documentation](./06-observability-testing-security.md) [LOW]
 
 #### R8.1 Implementation Tasks
 
 1. **Complete the error hierarchy (`src/shared/errors.ts`):**
-   - Add `AiProcessingError extends Error` â€” for AI call failures, response parse errors, and schema mismatches.
-   - Add `ConfigurationError extends Error` â€” for startup config validation failures.
-   - Add `MediaError extends Error` â€” for media download, storage, and size limit failures.
+   - Add `AiProcessingError extends Error` -- for AI call failures, response parse errors, and schema mismatches.
+   - Add `ConfigurationError extends Error` -- for startup config validation failures.
+   - Add `MediaError extends Error` -- for media download, storage, and size limit failures.
    - Update call sites that throw generic `new Error(...)` for these categories.
 
 2. **Deduplicate `LANGUAGE_ORDER` (`src/config/languages.ts`):**
@@ -636,7 +668,7 @@ grep -rn "console\.\(log\|warn\|error\|info\)" src/   # Should return 0 results
    - Remove inline definitions from both files.
 
 3. **Add dead letter queue pattern (`src/delivery/`):**
-   - Add a `failed_permanently_at` timestamp column to `delivery_jobs` (via migration `004_dead_letter.sql`).
+   - Add a `failed_permanently_at` timestamp column to `delivery_jobs` (via additive migration `004_dead_letter.sql` using `ALTER TABLE ADD COLUMN`).
    - Create a `listFailedJobs(limit: number)` repository method for operator visibility.
    - Add a `requeue(jobId: string)` method that resets a `failed_permanent` job to `pending` with `attempts = 0`.
 
@@ -679,9 +711,9 @@ grep -rn "console\.\(log\|warn\|error\|info\)" src/   # Should return 0 results
 #### R8.2 Deliverables Checklist
 
 - [ ] `AiProcessingError`, `ConfigurationError`, `MediaError` error classes added.
-- [ ] Zero generic `new Error(...)` for AI, config, or media failures â€” all use typed errors.
+- [ ] Zero generic `new Error(...)` for AI, config, or media failures -- all use typed errors.
 - [ ] `LANGUAGE_ORDER` defined once in `src/config/languages.ts`, imported everywhere.
-- [ ] Dead letter queue: `listFailedJobs()` and `requeue()` methods exist.
+- [ ] Dead letter queue: `listFailedJobs()` and `requeue()` methods exist (additive migration only).
 - [ ] Media cache capped at 5 entries with LRU eviction.
 - [ ] Empty caption treated as null instead of permanent failure.
 - [ ] WhatsApp reconnection capped at 100 attempts.
@@ -706,9 +738,9 @@ npm run build
 
 #### R8.4 Risk Notes
 
-- **Low risk** â€” these are cosmetic, documentation, and defensive improvements.
-- **Dead letter `requeue()`** â€” must reset the retry budget and clear previous attempt records.
-- **`process.exit()`** â€” ensure no log messages are lost (flush Pino before exiting).
+- **Low risk** -- these are cosmetic, documentation, and defensive improvements.
+- **Dead letter `requeue()`** -- must reset the retry budget and clear previous attempt records.
+- **`process.exit()`** -- ensure no log messages are lost (flush Pino before exiting).
 - **Dependency:** Requires R7 (logger migration) for consistent error logging.
 
 ---
@@ -747,14 +779,21 @@ flowchart LR
     style R8 fill:#69db7c,color:#333
 ```
 
-> [!NOTE]
-> **R5 (AI Pipeline Hardening)** has no dependencies on other phases and can be executed in parallel with R3 or R4 to accelerate the schedule.
+> **NOTE:** R5 (AI Pipeline Hardening) has no dependencies on other phases and can be executed in parallel with R3 or R4 to accelerate the schedule.
 
 ---
 
 ## 5. Governance Rules for Executing Agent
 
-### 5.1 Git Commit Convention
+### 5.1 Production Safety (Mandatory)
+
+Refer to Section 1.2 "Production Safety Constraints" before executing ANY phase. Key rules:
+- **WhatsApp auth folder (`private/whatsapp-auth`) is UNTOUCHABLE.**
+- **No destructive database operations on startup.** Seeding and destructive migrations require explicit developer instruction.
+- **No existing data deletion** except through the scheduled retention cycle targeting rows older than `DATA_RETENTION_DAYS`.
+- **Escalate to developer** if downtime >10 minutes or data risk is identified.
+
+### 5.2 Git Commit Convention
 
 Each phase produces a single scoped commit following [Conventional Commits](https://www.conventionalcommits.org/):
 
@@ -771,7 +810,7 @@ refactor(remediation-R<N>/<scope>): <imperative summary under 72 chars>
 - **Never** run `git add .`, `git add -A`, `git commit -a`, or `git reset --hard`.
 - Leave untracked files from other work untouched.
 
-### 5.2 Phase Gate Validation
+### 5.3 Phase Gate Validation
 
 A phase is **not complete** until:
 1. All items in its Deliverables Checklist are checked.
@@ -779,7 +818,7 @@ A phase is **not complete** until:
 3. `npm run typecheck` reports zero errors.
 4. The scoped commit is clean and contains only phase-relevant files.
 
-### 5.3 Sequential Gating
+### 5.4 Sequential Gating
 
 Phases must execute in dependency order per the diagram in Section 4. The only exception is **R5**, which may run in parallel with R3 or R4.
 
