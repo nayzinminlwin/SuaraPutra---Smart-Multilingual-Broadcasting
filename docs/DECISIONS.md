@@ -45,7 +45,7 @@
 ## 4. AI Pipeline & Model Selection
 
 * **Primary Model:** **Gemini 3.8 Flash** (`gemini-3.8-flash`) unified across all processing stages.
-* **SDK & Integration:** API-first approach using the official Google GenAI SDK (`@google/genai`), calling `ai.models.generateContent` with `temperature: 0.1`, `responseMimeType: 'application/json'`, and a constrained `responseJsonSchema`.
+* **SDK & Integration:** API-first approach using the official Google GenAI SDK (`@google/genai`), calling `ai.models.generateContent` with `temperature: 0.1`, `thinkingConfig.thinkingLevel: ThinkingLevel.LOW`, `responseMimeType: 'application/json'`, and a constrained `responseJsonSchema`.
 * **Unified Single-Call Processing:** All AI work is offloaded to a **single Gemini 3.8 Flash call** per message, which simultaneously evaluates worthiness and produces all 4 language translations. There are no separate classification or fact-extraction stages.
 * **Processing Logic by Message Type:**
   * **`TEXT-MESSAGE`:** The model evaluates the message on a `1.0–10.0` worthiness scale (`score`).
