@@ -32,7 +32,8 @@ export class DeliveryQueue {
     private readonly translations: TranslationRepository,
     private readonly jobs: DeliveryJobRepository,
     destinations: Readonly<Record<LanguageCode, string>>,
-    events?: EventLogRepository
+    events?: EventLogRepository,
+    private readonly onAnnouncementTerminal?: (announcementId: string) => void
   ) {
     this.router = new MessageRouter(destinations);
     this.events = events ?? new EventLogRepository(database);
@@ -196,8 +197,8 @@ export class DeliveryQueue {
     const job = this.jobs.findById(jobId);
     if (!job) throw new Error(`Delivery job not found: ${jobId}`);
     const jobs = this.jobs.listForAnnouncement(job.announcementId);
-    if (jobs.length !== 4 || jobs.some(candidate =>
-      !['sent', 'failed_permanent', 'uncertain', 'cancelled'].includes(candidate.status)
+    if (jobs.some(candidate =>
+      candidate.status === 'pending' || candidate.status === 'sending' || candidate.status === 'retry_wait'
     )) return;
     const status = jobs.every(candidate => candidate.status === 'sent')
       ? 'completed'
@@ -213,6 +214,7 @@ export class DeliveryQueue {
         details: { status, deliveryJobs: jobs.length }
       });
     }
+    if (announcement) this.onAnnouncementTerminal?.(announcement.id);
   }
 
   recordPostSendPersistenceFailure(

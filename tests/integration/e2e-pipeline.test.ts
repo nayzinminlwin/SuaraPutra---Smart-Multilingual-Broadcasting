@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApplication } from '../../src/app.js';
 import { MockModelProvider } from '../../src/ai/model-provider.js';
 import { MockWhatsAppAdapter } from '../../src/whatsapp/mock-adapter.js';
+import { HealthMonitor } from '../../src/observability/health.js';
 import type { ModelGenerateRequest } from '../../src/ai/model-provider.js';
 import type { OutboundMessagePayload, SendMessageResult } from '../../src/whatsapp/adapter.js';
 import type { EnvConfig } from '../../src/config/env.js';
@@ -23,6 +24,7 @@ describe('Phase 6 end-to-end pipeline', () => {
 
   afterEach(async () => {
     for (const application of applications.splice(0)) await application.stop();
+    vi.restoreAllMocks();
     for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
   });
 
@@ -80,7 +82,7 @@ describe('Phase 6 end-to-end pipeline', () => {
     });
     applications.push(app);
 
-    const retention = vi.spyOn(app.health, 'runRetention');
+    const retention = vi.spyOn(HealthMonitor.prototype, 'runRetention');
     await app.start();
     expect(retention).toHaveBeenCalledTimes(1);
     for (let fixture = 1; fixture <= 11; fixture += 1) {
@@ -225,10 +227,10 @@ describe('Phase 6 end-to-end pipeline', () => {
     try {
       await app.start();
       await adapter.injectSyntheticUpsert(textUpsert('journey', 1, 'Journey https://upm.edu.my/journey'));
-      await app.dispatcher.dispatchUntilIdle();
-
       const announcement = app.database.database.prepare('SELECT id FROM announcements').get() as { id: string };
       const tracer = app.getPipelineTracer(announcement.id);
+      await app.dispatcher.dispatchUntilIdle();
+
       const checkpoints = tracer?.getCheckpoints().map(checkpoint => checkpoint.name);
       expect(checkpoints?.slice(0, 7)).toEqual([
         'CP01_INGEST_NORMALIZE', 'CP02_FIFO_WAIT', 'CP03_GATE_CHECKS', 'CP04_CONTEXT_ASSEMBLY',
@@ -238,6 +240,7 @@ describe('Phase 6 end-to-end pipeline', () => {
       expect(checkpoints).toEqual(expect.arrayContaining([
         'CP09_DISPATCH_ms', 'CP09_DISPATCH_en', 'CP09_DISPATCH_zh-CN', 'CP09_DISPATCH_ta'
       ]));
+      expect(app.getPipelineTracer(announcement.id)).toBeUndefined();
       expect(summaryLog).toHaveBeenCalledWith(
         expect.stringContaining('[JOURNEY_SUMMARY]'),
         expect.objectContaining({ totalPipelineUs: expect.any(Number) })

@@ -1,13 +1,19 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Logger } from 'pino';
 import { MigrationError } from '../shared/errors.js';
 import { DatabaseClient } from './client.js';
 
 const migrationDirectory = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
+const sourceMigrationDirectory = join(process.cwd(), 'src', 'database', 'migrations');
 
 export class MigrationRunner {
-  constructor(private readonly client: DatabaseClient) {}
+  constructor(
+    private readonly client: DatabaseClient,
+    private readonly logger?: Logger,
+    private readonly migrationsDir = migrationDirectory
+  ) {}
 
   migrate(): void {
     try {
@@ -19,12 +25,18 @@ export class MigrationRunner {
       `);
       const applied = this.client.prepare('SELECT version FROM _migrations ORDER BY version')
         .all() as Array<{ version: string }>;
-      const migrations = ['001_initial_schema', '002_delivery_attempts'];
-      for (const version of migrations) {
+      const directory = existsSync(this.migrationsDir)
+        ? this.migrationsDir
+        : this.migrationsDir === migrationDirectory
+          ? sourceMigrationDirectory
+          : this.migrationsDir;
+      const migrations = readdirSync(directory).filter((file) => file.endsWith('.sql')).sort();
+      if (migrations.length === 0) throw new Error(`No SQL migrations found in ${directory}`);
+      for (const file of migrations) {
+        const version = file.slice(0, -'.sql'.length);
+        this.logger?.info({ migration: version }, 'Discovered database migration');
         if (applied.some((row) => row.version === version)) continue;
-        const migrationPath = join(migrationDirectory, `${version}.sql`);
-        const sourceMigrationPath = join(process.cwd(), 'src', 'database', 'migrations', `${version}.sql`);
-        const sql = readFileSync(existsSync(migrationPath) ? migrationPath : sourceMigrationPath, 'utf8');
+        const sql = readFileSync(join(directory, file), 'utf8');
         this.client.transaction(() => {
           this.client.exec(sql);
           this.client.prepare('INSERT INTO _migrations (version) VALUES (?)').run(version);
