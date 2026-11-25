@@ -55,6 +55,7 @@ Address R1's startup-order, tracer-retention, migration-discovery, and delivery-
 - Deferred logger/database/repository/service initialization to `start()`. The constructor now stores configuration and options; service accessors are available after startup.
 - Attached the ingestion handler before connecting and moved dispatch-loop startup until after `adapter.connect()` resolves.
 - Added timestamped tracer entries, five-minute eviction, a 60-second cleanup timer, and terminal-announcement cleanup through a queue callback.
+- Failed startup now disconnects the adapter, closes the database, and rejects unsafe retries on the same application instance.
 - Replaced the hardcoded four-job reconciliation test with a check for `pending`, `sending`, and `retry_wait` jobs.
 - Replaced the fixed migration list with sorted `.sql` file discovery, with the existing source-directory fallback retained for compiled runs. The application logger records each discovered migration.
 - Updated lifecycle tests for lazy initialization and terminal tracer cleanup.
@@ -63,6 +64,8 @@ Address R1's startup-order, tracer-retention, migration-discovery, and delivery-
 
 - **Decision:** Preserve the existing public service access pattern through getters, but require `start()` before accessing database-backed services.
   **Rationale:** These services cannot be constructed without opening the database, which must not happen in the application constructor.
+- **Decision:** A failed startup disconnects the adapter and closes the database; that application instance cannot be started again.
+  **Rationale:** The adapter interface has no handler-unsubscribe operation, so retrying startup on the same instance could attach duplicate handlers.
 - **Decision:** Keep the existing compiled-runtime migration-directory fallback and make the migration directory injectable for isolated tests.
   **Rationale:** Migrations are not copied by the current TypeScript build; the fallback preserves the existing runtime behavior while enabling deterministic discovery tests.
 - **Deviation:** None from the R1 implementation tasks.
@@ -76,6 +79,7 @@ Address R1's startup-order, tracer-retention, migration-discovery, and delivery-
 | Tracer TTL, periodic cleanup, and terminal cleanup | Complete | Tests verify five-minute eviction and removal after terminal reconciliation. |
 | Migration auto-discovery | Complete | Tests verify both existing migrations, sorted discovery, additional SQL migration execution, and idempotent rerun. |
 | Dynamic job reconciliation | Complete | A one-job test verifies terminal status without a four-job assumption. |
+| Startup failure cleanup | Complete | Regression test verifies adapter disconnect and prevents handler-duplicating restart. |
 | Regression checks | Complete | Full test suite and type check passed. |
 
 ## 7. Verification
@@ -90,7 +94,8 @@ git diff --check
 
 **Results:**
 
-- **Passed:** `npm test -- --reporter=dot` — 9 test files, 89 tests passed.
+- **Passed:** `npm test -- --reporter=dot` — 9 test files, 90 tests passed.
+- **Passed:** `npm test -- tests/unit/remediation-r1.test.ts --reporter=dot` — 1 file, 5 tests passed after startup-failure cleanup was added.
 - **Passed:** `npm run typecheck` — zero TypeScript errors.
 - **Passed:** `git diff --check` — no whitespace errors.
 - **Failed:** An initial targeted test attempted to mark a pending delivery job sent without claiming it first. The test setup was corrected to follow the existing state transition; the targeted tests and full suite then passed.
@@ -99,6 +104,7 @@ git diff --check
 ## 8. Risks, Known Issues, and Follow-up
 
 - Database-backed application properties are now available after `start()` rather than immediately after construction; the known test and script call sites were updated or confirmed to access them after startup.
+- An application instance whose startup fails must be discarded; `start()` reports this explicitly on any retry.
 - The database backup mechanism remains a future R4 decision and was not needed for R1.
 - **Tester focus:** Verify dispatch cannot run before adapter connection, migration discovery ordering and idempotency, and tracer cleanup on both TTL and terminal-state paths.
 

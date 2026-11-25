@@ -54,6 +54,7 @@ export class SuaraPutraApplication {
   private tracerCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private readonly tracers = new Map<string, TracerEntry>();
   private started = false;
+  private startupFailed = false;
 
   constructor(options: ApplicationOptions = {}) {
     this.options = options;
@@ -86,6 +87,7 @@ export class SuaraPutraApplication {
 
   async start(): Promise<void> {
     if (this.started) return;
+    if (this.startupFailed) throw new Error('Application startup failed; create a new application instance');
     if (this.runtime) throw new Error('Application has already been initialized and cannot be restarted');
     const runtime = this.createRuntime();
     this.runtime = runtime;
@@ -111,8 +113,23 @@ export class SuaraPutraApplication {
     } catch (error) {
       this.clearTimers();
       runtime.recovery.stop();
+      this.startupFailed = true;
+      let cleanupFailed = false;
+      let cleanupError: unknown;
+      try {
+        await runtime.adapter.disconnect();
+      } catch (error) {
+        cleanupFailed = true;
+        cleanupError = error;
+      }
       runtime.database.close();
       this.runtime = null;
+      if (cleanupFailed) {
+        throw new AggregateError(
+          [error, cleanupError],
+          'Application startup failed and adapter cleanup also failed'
+        );
+      }
       throw error;
     }
   }

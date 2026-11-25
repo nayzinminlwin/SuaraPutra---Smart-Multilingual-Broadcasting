@@ -206,6 +206,37 @@ describe('remediation R1 foundation fixes', () => {
     expect(adapter.getSentMessages()).toHaveLength(4);
   });
 
+  it('disconnects and prevents retry after startup fails', async () => {
+    class FailingAdapter extends MockWhatsAppAdapter {
+      connectCalls = 0;
+      disconnectCalls = 0;
+
+      override async connect(): Promise<void> {
+        this.connectCalls += 1;
+        throw new Error('synthetic connection failure');
+      }
+
+      override async disconnect(): Promise<void> {
+        this.disconnectCalls += 1;
+        await super.disconnect();
+      }
+    }
+
+    const directory = createDirectory('suaraputra-r1-start-failure-');
+    const adapter = new FailingAdapter();
+    const application = createApplication({
+      config: config(directory),
+      adapter,
+      startDeliveryLoop: false
+    });
+    applications.push(application);
+
+    await expect(application.start()).rejects.toThrow('synthetic connection failure');
+    expect(adapter.disconnectCalls).toBe(1);
+    await expect(application.start()).rejects.toThrow('create a new application instance');
+    expect(adapter.connectCalls).toBe(1);
+  });
+
   it('evicts tracers once they are five minutes old', async () => {
     vi.useFakeTimers();
     const directory = createDirectory('suaraputra-r1-tracer-ttl-');
