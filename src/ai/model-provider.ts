@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import type { TranslationPromptType } from './prompts/translation.prompt.js';
 import { TranslationResponseSchema } from './schemas/translation.schema.js';
 
@@ -48,7 +48,10 @@ export class GeminiModelProvider implements IModelProvider {
       config: {
         responseMimeType: 'application/json',
         responseJsonSchema: TRANSLATION_RESPONSE_JSON_SCHEMA,
-        temperature: 0.1
+        temperature: 0.1,
+        thinkingConfig: {
+          thinkingLevel: ThinkingLevel.LOW
+        }
       }
     });
     const text = result.text;

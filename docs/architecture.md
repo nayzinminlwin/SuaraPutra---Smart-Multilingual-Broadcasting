@@ -476,7 +476,7 @@ Because the FIFO ingestion queue finishes Message $N$ before starting Message $N
 ### 5.1 Model Provider Configuration (`src/ai/model-provider.ts`)
 - **Model Identifier:** `gemini-3.8-flash` (configurable via `AI_MODEL=gemini-3.8-flash`, optimized for $200\text{–}300$ word announcements).
 - **SDK:** Official Google GenAI SDK (`@google/genai`, `new GoogleGenAI({ apiKey: config.AI_API_KEY })`).
-- **Invocation Configuration:** Calls `ai.models.generateContent` with `temperature: 0.1`, `responseMimeType: 'application/json'`, and `responseJsonSchema` matching `TranslationResponseSchema`.
+- **Invocation Configuration:** Calls `ai.models.generateContent` with `temperature: 0.1`, `thinkingConfig.thinkingLevel: ThinkingLevel.LOW`, `responseMimeType: 'application/json'`, and `responseJsonSchema` matching `TranslationResponseSchema`.
 
 ### 5.2 Structured Input Template (`src/ai/prompts/translation.prompt.ts`)
 Every AI invocation formats the message and its context into the following input template with `<untrusted_whatsapp_content>` delimiter tags:
