@@ -40,7 +40,7 @@ async function main(): Promise<void> {
       DATABASE_URL: path.join(outboxDir, 'simulation.sqlite'),
       MEDIA_STORAGE_DIR: path.join(outboxDir, 'source-media'),
       WHATSAPP_ADAPTER_MODE: 'mock',
-      BROADCAST_KILL_SWITCH: 'false'
+      BROADCAST_KILL_SWITCH: false
     },
     adapter,
     startDeliveryLoop: false

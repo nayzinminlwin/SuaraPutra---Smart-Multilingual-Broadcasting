@@ -39,6 +39,7 @@ describe('Phase 5 delivery queue and dispatcher', () => {
   function createHarness(options: {
     faultModesByTarget?: Readonly<Record<string, 'TRANSIENT_ERROR' | 'AMBIGUOUS_TIMEOUT'>>;
     latencyMs?: number;
+    onAnnouncementTerminal?: (announcementId: string) => void;
   } = {}) {
     const directory = mkdtempSync(join(tmpdir(), 'suaraputra-phase5-'));
     const client = new DatabaseClient(join(directory, 'test.sqlite'));
@@ -50,7 +51,8 @@ describe('Phase 5 delivery queue and dispatcher', () => {
       new TranslationRepository(client),
       new DeliveryJobRepository(client),
       destinations,
-      new EventLogRepository(client)
+      new EventLogRepository(client),
+      options.onAnnouncementTerminal
     );
     const adapter = new MockWhatsAppAdapter({
       faultModesByTarget: options.faultModesByTarget,
@@ -253,7 +255,7 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     });
   });
 
-  it('marks announcements completed or partially failed after the fourth terminal job', async () => {
+  it('marks announcements completed or partially failed after all jobs are terminal', async () => {
     const complete = createHarness();
     persist(complete, announcement('complete', 'source-complete', 1000));
     const completeDispatcher = new DeliveryDispatcher({ adapter: complete.adapter, queue: complete.queue, pacingMs: 0 });
@@ -272,6 +274,26 @@ describe('Phase 5 delivery queue and dispatcher', () => {
     expect(partial.client.database.prepare(
       'SELECT status FROM announcements WHERE id = ?'
     ).get('partial')).toEqual({ status: 'partial_failure' });
+  });
+
+  it('reconciles terminal state without assuming four delivery jobs and clears its tracer', () => {
+    const terminalAnnouncements: string[] = [];
+    const harness = createHarness({
+      onAnnouncementTerminal: (announcementId) => terminalAnnouncements.push(announcementId)
+    });
+    persist(harness, announcement('single-destination', 'source-single-destination', 1000));
+    harness.client.database.prepare(
+      "DELETE FROM delivery_jobs WHERE announcement_id = ? AND language_code != 'ms'"
+    ).run('single-destination');
+    const job = harness.queue.claimNext('single-destination-worker');
+    if (!job) throw new Error('Expected the remaining delivery job to be claimable');
+    harness.queue.markSent(job.id, 'outgoing-single-destination');
+    harness.queue.reconcileAnnouncementStatus(job.id);
+
+    expect(harness.client.database.prepare(
+      'SELECT status FROM announcements WHERE id = ?'
+    ).get('single-destination')).toEqual({ status: 'completed' });
+    expect(terminalAnnouncements).toEqual(['single-destination']);
   });
 
   it('keeps queued work untouched when the delivery kill switch is active', async () => {

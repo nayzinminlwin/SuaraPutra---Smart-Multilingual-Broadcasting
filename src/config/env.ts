@@ -36,13 +36,15 @@ export const EnvConfigSchema = z.object({
   ANNOUNCEMENT_SCORE_THRESHOLD: z.coerce.number().min(1.0).max(10.0).default(4.0),
   CONTEXT_MAX_MESSAGES: z.coerce.number().int().min(0).max(15).default(5),
   CONTEXT_WINDOW_SECONDS: z.coerce.number().int().min(10).max(3600).default(300),
+  // Keep ingestion serial until ordering, deduplication, and recovery are safe under parallel processing.
+  // Raise this only after those concurrency guarantees have dedicated regression coverage.
   MAX_CONCURRENT_INGESTIONS: z.coerce.number().int().min(1).max(1).default(1),
   MAX_MEDIA_BYTES: z.coerce.number().int().min(1048576).default(10485760),
   DELIVERY_POLL_INTERVAL_MS: z.coerce.number().int().min(200).default(1000),
   DELIVERY_PACING_MS: z.coerce.number().int().min(500).default(1500),
   DELIVERY_SEND_TIMEOUT_MS: z.coerce.number().int().min(5000).default(30000),
   DATA_RETENTION_DAYS: z.coerce.number().int().min(1).default(14),
-  BROADCAST_KILL_SWITCH: z.enum(['true', 'false']).default('false'),
+  BROADCAST_KILL_SWITCH: z.enum(['true', 'false']).transform(value => value === 'true').default('false'),
   WEB_ADMIN_ENABLED: z.enum(['true', 'false']).default('false'),
   WEB_ADMIN_PORT: z.coerce.number().int().min(1024).max(65535).default(3000)
 });
