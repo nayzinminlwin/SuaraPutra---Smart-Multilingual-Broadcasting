@@ -111,5 +111,5 @@ git diff --check
 
 ## 9. Commit and Documentation
 
-**Commit:** To be recorded in the phase completion report.
+**Commit:** `ae7d850` (`refactor(remediation-R2/di): inject application services safely`)
 **Related documentation:** [Remediation plan](../../audits/remediation-plan.md)
