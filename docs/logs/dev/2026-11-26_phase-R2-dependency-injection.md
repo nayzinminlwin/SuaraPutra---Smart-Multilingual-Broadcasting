@@ -115,5 +115,5 @@ git diff --check
 
 ## 9. Commit and Documentation
 
-**Commit:** `ae7d850` (`refactor(remediation-R2/di): inject application services safely`)
+**Commits:** `ae7d850` (`refactor(remediation-R2/di): inject application services safely`); `4d012e2` (`fix(remediation-R2/config): reject invalid kill-switch values`)
 **Related documentation:** [Remediation plan](../../audits/remediation-plan.md)
