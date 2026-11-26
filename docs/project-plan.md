@@ -451,7 +451,7 @@ Implement the static language-to-group router (`src/routing/message-router.ts`),
      * Ambiguous send timeout (`WhatsAppAmbiguousTimeoutError` after 30s) $\rightarrow$ `uncertain` (halt auto-retry immediately).
      * Permanent error (`WhatsAppPermanentError` or $\text{attempts} \ge 5$) $\rightarrow$ `failed_permanent`.
 4. **Message Reconstructor, Single-Read Media Cache & Dispatcher (`src/delivery/dispatcher.ts`):**
-   * Respect `BROADCAST_KILL_SWITCH`: if `'true'`, pause dequeuing immediately.
+   * Respect boolean `BROADCAST_KILL_SWITCH`: if `true`, pause dequeuing immediately.
    * Instrument `CP08_MSG_RECONSTRUCT` ($\mu\text{s}$) per job with a **Single-Read Media Cache**:
      * Because all 4 jobs for an announcement are polled consecutively (`language_order` `1` $\rightarrow$ `4`), when reconstructing an `IMAGE_CAPTION` or `IMAGE_ONLY` job, read `job.mediaLocalPath` from disk on the 1st group send (`ms`), reuse the in-memory `Buffer` for `en`, `zh-CN`, and `ta` (`mediaCache=RAM_HIT`), and immediately clear the cache reference once the 4th group send completes (cutting `pd-standard` disk read IOPS by 75%).
    * Instrument `CP09_DISPATCH_<LANG>` ($\mu\text{s}$) around `adapter.sendMessage(job.targetGroupJid, payload)` with sequential pacing (`DELIVERY_PACING_MS`).

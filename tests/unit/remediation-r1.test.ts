@@ -60,7 +60,7 @@ describe('remediation R1 foundation fixes', () => {
       DELIVERY_PACING_MS: 0,
       DELIVERY_SEND_TIMEOUT_MS: 5000,
       DATA_RETENTION_DAYS: 14,
-      BROADCAST_KILL_SWITCH: 'false',
+      BROADCAST_KILL_SWITCH: false,
       WEB_ADMIN_ENABLED: 'false',
       WEB_ADMIN_PORT: 3000,
       ...overrides

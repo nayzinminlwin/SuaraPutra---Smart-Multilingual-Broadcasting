@@ -912,7 +912,7 @@ export const EnvConfigSchema = z.object({
   DELIVERY_PACING_MS: z.coerce.number().int().min(500).default(1500),
   DELIVERY_SEND_TIMEOUT_MS: z.coerce.number().int().min(5000).default(30000),
   DATA_RETENTION_DAYS: z.coerce.number().int().min(1).default(14),
-  BROADCAST_KILL_SWITCH: z.enum(['true', 'false']).default('false'),
+  BROADCAST_KILL_SWITCH: z.string().transform(value => value === 'true').default('false'),
 
   // Week 2 Web Admin Dashboard Configuration
   WEB_ADMIN_ENABLED: z.enum(['true', 'false']).default('false'),
@@ -924,7 +924,7 @@ export type EnvConfig = z.infer<typeof EnvConfigSchema>;
 
 ### 8.2 Security, Privacy & Platform Compliance Controls
 1. **Emergency Broadcast Kill-Switch (`BROADCAST_KILL_SWITCH=true`):**
-   - When set to `'true'`, the dispatcher immediately stops dequeuing and sending outbound WhatsApp messages.
+   - Environment values `'true'` and `'false'` are parsed to booleans. When `true`, the dispatcher immediately stops dequeuing and sending outbound WhatsApp messages.
 2. **Credential Isolation:**
    - `./private/whatsapp-auth/`, `./data/`, `simulation/outbox/`, and `.env` must be listed in `.gitignore`.
    - Directory permissions on Linux (`chmod 700 ./private/whatsapp-auth ./data`) restrict access exclusively to the service user.

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parseEnv, type EnvConfig } from './config/env.js';
+import { getSafeConfig, parseEnv, type EnvConfig } from './config/env.js';
 import { getGroupRouting } from './config/groups.js';
 import { AiProcessor } from './ai/ai-processor.js';
 import { GeminiModelProvider, MockModelProvider, type IModelProvider } from './ai/model-provider.js';
@@ -22,6 +22,19 @@ import { MockWhatsAppAdapter } from './whatsapp/mock-adapter.js';
 import type { IWhatsAppAdapter } from './whatsapp/adapter.js';
 import type { PipelineTracer } from './observability/telemetry.js';
 
+/** Overrides defaults; injected repositories must match the database, which the app migrates and closes. */
+export interface ApplicationDependencies {
+  database?: DatabaseClient;
+  sources?: SourceMessageRepository;
+  announcements?: AnnouncementRepository;
+  translations?: TranslationRepository;
+  jobs?: DeliveryJobRepository;
+  events?: EventLogRepository;
+  aiProcessor?: AiProcessor;
+  deliveryQueue?: DeliveryQueue;
+  adapter?: IWhatsAppAdapter;
+}
+
 const TRACER_MAX_AGE_MS = 5 * 60 * 1000;
 const TRACER_SWEEP_INTERVAL_MS = 60 * 1000;
 
@@ -30,6 +43,7 @@ export interface ApplicationOptions {
   adapter?: IWhatsAppAdapter;
   modelProvider?: IModelProvider;
   startDeliveryLoop?: boolean;
+  dependencies?: ApplicationDependencies;
 }
 
 type ApplicationRuntime = Readonly<{
@@ -172,17 +186,18 @@ export class SuaraPutraApplication {
 
   private createRuntime(): ApplicationRuntime {
     const logger = createLogger(this.config);
-    logSafeConfig(logger, this.config);
-    const database = new DatabaseClient(this.config.DATABASE_URL, this.config);
+    logSafeConfig(logger, getSafeConfig(this.config));
+    const dependencies = this.options.dependencies ?? {};
+    const database = dependencies.database ?? new DatabaseClient(this.config.DATABASE_URL, this.config);
     try {
       new MigrationRunner(database, logger).migrate();
-      const sources = new SourceMessageRepository(database);
-      const announcements = new AnnouncementRepository(database);
-      const translations = new TranslationRepository(database);
-      const jobs = new DeliveryJobRepository(database);
-      const events = new EventLogRepository(database);
+      const sources = dependencies.sources ?? new SourceMessageRepository(database);
+      const announcements = dependencies.announcements ?? new AnnouncementRepository(database);
+      const translations = dependencies.translations ?? new TranslationRepository(database);
+      const jobs = dependencies.jobs ?? new DeliveryJobRepository(database);
+      const events = dependencies.events ?? new EventLogRepository(database);
       const destinations = getGroupRouting(this.config);
-      const queue = new DeliveryQueue(
+      const queue = dependencies.deliveryQueue ?? new DeliveryQueue(
         database,
         announcements,
         translations,
@@ -191,13 +206,13 @@ export class SuaraPutraApplication {
         events,
         (announcementId) => this.tracers.delete(announcementId)
       );
-      const adapter = this.options.adapter ?? (
+      const adapter = dependencies.adapter ?? this.options.adapter ?? (
         this.config.WHATSAPP_ADAPTER_MODE === 'baileys'
           ? new BaileysWhatsAppAdapter(this.config)
           : new MockWhatsAppAdapter({ maxMediaBytes: this.config.MAX_MEDIA_BYTES })
       );
       const provider = this.options.modelProvider ?? this.createModelProvider();
-      const processor = new AiProcessor({
+      const processor = dependencies.aiProcessor ?? new AiProcessor({
         provider,
         scoreThreshold: this.config.ANNOUNCEMENT_SCORE_THRESHOLD,
         announcements,
@@ -220,7 +235,7 @@ export class SuaraPutraApplication {
         adapter,
         queue,
         pacingMs: this.config.DELIVERY_PACING_MS,
-        killSwitch: this.config.BROADCAST_KILL_SWITCH === 'true',
+        killSwitch: this.config.BROADCAST_KILL_SWITCH,
         retryPolicy: undefined,
         tracerForJob: (job) => this.getPipelineTracer(job.announcementId)
       });
