@@ -71,7 +71,10 @@ Add targeted dependency overrides to application composition, ensure safe config
   **Rationale:** The app lifecycle remains the owner of persistence initialization and shutdown.
 - **Decision:** Retain `MAX_CONCURRENT_INGESTIONS` with an explanatory constraint instead of removing the field.
   **Rationale:** Existing config consumers/tests remain stable, and the comment states evidence required before raising the cap.
-- **Deviation:** None from R2.
+- **Decision:** Validate the environment value with the existing `'true' | 'false'` enum before transforming it to a boolean.
+  **Rationale:** A plain string transform would silently turn typos into `false`, potentially disabling the emergency delivery stop without a startup error.
+- **Deviation:** The kill-switch input retains enum validation before transformation, rather than accepting arbitrary strings.
+  **Rationale:** Preserve startup validation so misspelled values fail clearly instead of silently turning off the emergency stop.
 
 ## 6. Deliverables
 
@@ -98,6 +101,7 @@ git diff --check
 **Results:**
 
 - **Passed:** Targeted R2, config, and queue suite — 3 test files, 34 tests passed.
+- **Passed:** Post-review targeted config suite — 2 test files, 8 tests passed; invalid kill-switch values are rejected.
 - **Passed:** `npm test -- --reporter=dot` — 10 test files, 94 tests passed.
 - **Passed:** `npm run typecheck` — zero TypeScript errors.
 - **Passed:** `git diff --check` — no whitespace errors.

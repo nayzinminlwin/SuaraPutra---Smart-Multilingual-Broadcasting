@@ -912,7 +912,7 @@ export const EnvConfigSchema = z.object({
   DELIVERY_PACING_MS: z.coerce.number().int().min(500).default(1500),
   DELIVERY_SEND_TIMEOUT_MS: z.coerce.number().int().min(5000).default(30000),
   DATA_RETENTION_DAYS: z.coerce.number().int().min(1).default(14),
-  BROADCAST_KILL_SWITCH: z.string().transform(value => value === 'true').default('false'),
+  BROADCAST_KILL_SWITCH: z.enum(['true', 'false']).transform(value => value === 'true').default('false'),
 
   // Week 2 Web Admin Dashboard Configuration
   WEB_ADMIN_ENABLED: z.enum(['true', 'false']).default('false'),

@@ -5,7 +5,7 @@ import { Writable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import pino from 'pino';
 import { createApplication } from '../../src/app.js';
-import { getSafeConfig, parseEnv, type EnvConfig } from '../../src/config/env.js';
+import { EnvConfigSchema, getSafeConfig, parseEnv, type EnvConfig } from '../../src/config/env.js';
 import { DatabaseClient } from '../../src/database/client.js';
 import { MigrationRunner } from '../../src/database/migrator.js';
 import { SourceMessageRepository } from '../../src/database/repositories/source-message.repo.js';
@@ -120,6 +120,10 @@ describe('remediation R2 dependency injection and config contracts', () => {
     expect(typeof enabled.BROADCAST_KILL_SWITCH).toBe('boolean');
     expect(disabled.BROADCAST_KILL_SWITCH).toBe(false);
     expect(typeof disabled.BROADCAST_KILL_SWITCH).toBe('boolean');
+    expect(EnvConfigSchema.safeParse({
+      ...common,
+      BROADCAST_KILL_SWITCH: 'treu'
+    }).success).toBe(false);
   });
 
   it('passes only safe config fields through the logger data path', async () => {
